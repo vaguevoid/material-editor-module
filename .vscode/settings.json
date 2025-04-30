@@ -1,0 +1,14 @@
+{
+    "rust-analyzer.linkedProjects": [
+    "Cargo.toml",
+    ],
+    "rust-analyzer.cargo.features": "all",
+    "editor.inlayHints.enabled": "offUnlessPressed",
+    "editor.inlayHints.enumMemberValues.enabled": false,
+    "editor.inlayHints.functionLikeReturnTypes.enabled": false,
+    "editor.inlayHints.parameterNames.enabled": "all",
+    "editor.inlayHints.propertyDeclarationTypes.enabled": false,
+    "editor.inlayHints.parameterTypes.enabled": false,
+    "editor.inlayHints.variableTypes.enabled": false,
+    "editor.autoClosingBrackets": "never",
+}

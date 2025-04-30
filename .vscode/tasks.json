@@ -1,0 +1,15 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build + Copy",
+            "type": "process",
+            "windows":{
+                "command": "cargo-fiasco.exe",
+                "args": ["build", "--symbols", "--copy", "C:/projects/void/engine/target/debug"]
+            },
+            "command": "cargo-fiasco",
+            "args": ["build", "--symbols", "--copy", "C:/projects/void/engine/target/debug"]
+        }
+    ]
+}
