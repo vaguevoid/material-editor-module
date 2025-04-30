@@ -26,7 +26,7 @@ fn main() -> eframe::Result {
         .read(true)
         .write(true)
         .create(true)
-        .open("shared_memory.bin")
+        .open("shared_memory_gui.bin")
         .expect("Failed to open file");
     file.set_len(4096).expect("Failed to resize file");
     let mut mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") };

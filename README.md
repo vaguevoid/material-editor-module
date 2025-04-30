@@ -1,10 +1,7 @@
 # Material Editor Engine
 
-* Build Gui
-cargo build --manifest-path gui/Cargo.toml
-
-* Build module 
-cargo build
+* Build Module + Gui
+cargo build --workspace
 
 * Run module
 Use VS Code"Run and Debug" button on the left 

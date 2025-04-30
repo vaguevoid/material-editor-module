@@ -8,9 +8,10 @@ use eframe::egui;
 use game_asset::ecs_module::GpuInterface;
 use game_module_macro::{init, system, system_once, Component, ResourceWithoutSerialize};
 use std::ffi::CString;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::ops::Range;
 use std::path::Path;
+use std::process::Command;
 use void_public::event::graphics::NewTexture;
 use void_public::event::input::KeyCode;
 use void_public::graphics::TextureId;
@@ -71,6 +72,26 @@ struct Timer {
     pub time_remaining: f32,
 }
 
+
+#[system_once]
+fn init_shared_mem() {
+    // Create or open a file for shared memory
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open("shared_memory.bin")
+        .expect("Failed to open file");
+
+        // Path to Project B's executable (adjust for release builds)
+        let exe_path = "./target/debug/material_editor.exe";
+
+        // Spawn the process
+        let mut child = Command::new(exe_path)
+            .spawn()
+            .expect("Failed to start Project B");
+    
+}
 
 #[system_once]
 fn spawn_scene() {
