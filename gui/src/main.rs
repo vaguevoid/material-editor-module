@@ -8,10 +8,8 @@ use std::{
 // it's an example
 use eframe::egui::{self, TextEdit};
 use memmap2::{MmapMut, MmapOptions};
-use std::fs::{OpenOptions, File};
+use std::fs::{File, OpenOptions};
 use std::io::Write;
-
-
 
 mod keypad;
 use keypad::Keypad;
@@ -34,10 +32,6 @@ fn main() -> eframe::Result {
     let mut mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") };
     mmap[..5].copy_from_slice(b"Hello");
     mmap.flush().expect("Failed to flush");
-
-
-
-
 
     eframe::run_native(
         "Custom Keypad App",
@@ -93,8 +87,8 @@ impl eframe::App for MaterialEditor {
                         .desired_rows(10) // Sets the initial height
                         .font(egui::TextStyle::Monospace), // Uses monospace font for better readability
                 );
-            
-               /* ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
+
+                /* ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
                 if ui.button("Increment").clicked() {
                     self.age += 1;
                 }

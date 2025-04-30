@@ -1,57 +1,27 @@
 mod asset_loading;
 
-use crate::asset_loading::register_texture;
+//use crate::asset_loading::register_texture;
 
 use eframe::egui;
 
 
 use game_asset::ecs_module::GpuInterface;
 use game_module_macro::{init, system, system_once, Component, ResourceWithoutSerialize};
-use rand::prelude::ThreadRng;
-use rand::Rng;
 use std::ffi::CString;
 use std::fs;
 use std::ops::Range;
 use std::path::Path;
-use void_public::coordinate_systems::set_world_position;
 use void_public::event::graphics::NewTexture;
 use void_public::event::input::KeyCode;
-use void_public::graphics::{TextureId, TextureRender};
+use void_public::graphics::TextureId;
 use void_public::input::InputState;
 use void_public::*;
 
 const PLAYER_SPEED: f32 = 1_f32;
-const MAX_AGENT_SPEED: f32 = 15.0;
 
-const SMALL_TRAP_DISTANCE: f32 = 2.5_f32;
-const SMALL_TRAP_MOVEMENT_MIN: f32 = 0.5_f32;
-const SMALL_TRAP_MOVEMENT_MAX: f32 = 2.0_f32;
-const AGENT_TIMER_RANGE: Range<f32> = 2.0..4.0;
-
-const TWO_PI: f32 = 2.0 * std::f32::consts::PI;
-const ROTATION_SPEED: f32 = 2.0;
 const CAMERA_ZOOM_SPEED: f32 = 2f32;
 const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
-
-#[derive(ResourceWithoutSerialize)]
-struct CustomResource {
-    player_sprite_asset_ids: [TextureId; 4],
-    trap_asset_id: TextureId,
-    star_asset_id: TextureId,
-    pub num_players: u32,
-}
-
-impl Default for CustomResource {
-    fn default() -> Self {
-        Self {
-            player_sprite_asset_ids: [TextureId(0), TextureId(0), TextureId(0), TextureId(0)],
-            trap_asset_id: TextureId(0),
-            star_asset_id: TextureId(0),
-            num_players: 4,
-        }
-    }
-}
 
 #[repr(C)]
 #[derive(Component, Default, serde::Deserialize)]
@@ -100,58 +70,10 @@ struct Timer {
     #[serde(default)]
     pub time_remaining: f32,
 }
-/*
-#[derive(ResourceWithoutSerialize)]
-struct MaterialEditorGui {
-    eFrame::
-}*/
+
 
 #[system_once]
-fn register_assets(
-    gpu_interface: &mut GpuInterface,
-    custom_resource: &mut CustomResource,
-    new_texture_event_writer: EventWriter<NewTexture>,
-    _aspect: &Aspect,
-) {/*
-    custom_resource.player_sprite_asset_ids[0] = register_texture(
-        "textures/player_front.png",
-        true,
-        gpu_interface,
-        &new_texture_event_writer,
-    );*/
-}
-
-struct MyApp {}
-
-impl Default for MyApp {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label("Hello, world!");
-        });
-    }
-}
-
-
-#[init]
-fn init_gui() {
-    std::thread::spawn(|| {
-        eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| Box::new(MyApp::default())));
-    });
-    
-
-}
-
-#[system_once]
-fn spawn_scene(custom_resource: &mut CustomResource) {
-    // spawn_input_capture();
-
-    custom_resource.num_players = 4;
+fn spawn_scene() {
     match std::env::current_dir() {
         Ok(path) => println!("The current working directory is: {}", path.display()),
         Err(e) => eprintln!("Error getting current directory: {}", e),
@@ -172,7 +94,6 @@ fn spawn_scene(custom_resource: &mut CustomResource) {
 #[system]
 fn capture_input(
     input_state: &InputState,
-    custom_resource: &mut CustomResource,
     aspect: &Aspect,
     mut query_player_input: Query<&mut PlayerInput>,
 ) {
@@ -213,48 +134,8 @@ fn capture_input(
         player_input.movement_input = input_dir;
 
         if input_state.mouse.buttons.0[0].just_pressed() {
-            let half_width = aspect.width / 2.0;
-            let half_height = aspect.height / 2.0;
-            match custom_resource.num_players {
-                1 => {
-                    player_input.active_player = 0;
-                }
-                2 => {
-                    player_input.active_player = if input_state.mouse.cursor_position.x < half_width
-                    {
-                        0
-                    } else {
-                        1
-                    };
-                }
-                3 => {
-                    if input_state.mouse.cursor_position.x < half_width {
-                        if input_state.mouse.cursor_position.y < half_height {
-                            player_input.active_player = 2;
-                        } else {
-                            player_input.active_player = 0;
-                        }
-                    } else {
-                        player_input.active_player = 1;
-                    }
-                }
-                4 => {
-                    if input_state.mouse.cursor_position.x < half_width {
-                        if input_state.mouse.cursor_position.y < half_height {
-                            player_input.active_player = 2;
-                        } else {
-                            player_input.active_player = 0;
-                        }
-                    } else {
-                        if input_state.mouse.cursor_position.y < aspect.height / 2.0 {
-                            player_input.active_player = 3;
-                        } else {
-                            player_input.active_player = 1;
-                        }
-                    }
-                }
-                _ => {}
-            }
+            player_input.active_player = 0;
+
         }
 
         if key_just_pressed(input_state, KeyCode::Digit1) {
