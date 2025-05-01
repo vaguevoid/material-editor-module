@@ -2,19 +2,18 @@ mod asset_loading;
 
 //use crate::asset_loading::register_texture;
 
-use eframe::egui;
+use game_module_macro::{system, system_once, Component};
 
+use once_cell::sync::Lazy;
 
-use game_asset::ecs_module::GpuInterface;
-use game_module_macro::{init, system, system_once, Component, ResourceWithoutSerialize};
+use memmap2::MmapMut;
 use std::ffi::CString;
 use std::fs::{self, OpenOptions};
-use std::ops::Range;
 use std::path::Path;
 use std::process::Command;
-use void_public::event::graphics::NewTexture;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use void_public::event::input::KeyCode;
-use void_public::graphics::TextureId;
 use void_public::input::InputState;
 use void_public::*;
 
@@ -72,10 +71,7 @@ struct Timer {
     pub time_remaining: f32,
 }
 
-
-#[system_once]
-fn init_shared_mem() {
-    // Create or open a file for shared memory
+static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -83,13 +79,19 @@ fn init_shared_mem() {
         .open("shared_memory.bin")
         .expect("Failed to open file");
 
-        // Path to Project B's executable (adjust for release builds)
-        let exe_path = "./target/debug/material_editor.exe";
+    file.set_len(4096).expect("Failed to set file size");
 
-        // Spawn the process
-        let mut child = Command::new(exe_path)
-            .spawn()
-            .expect("Failed to start Project B");
+    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
+});
+
+static mut FRAME_COUNTER: u32 = 0_u32;
+
+#[system_once]
+fn init_shared_mem() {
+    let material_editor_gui = "./target/debug/material_editor.exe";
+     let _ = Command::new(material_editor_gui)
+         .spawn()
+        .expect("Failed to start Project B");
     
 }
 
@@ -118,6 +120,28 @@ fn capture_input(
     aspect: &Aspect,
     mut query_player_input: Query<&mut PlayerInput>,
 ) {
+
+    unsafe {
+        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+
+            let read_barrier = {
+                &*(shared_mem.as_ptr() as *mut AtomicBool)    
+            };
+
+            // Safe to Access?
+            if !read_barrier.load(Ordering::Acquire) {
+                
+                let incoming_message = std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
+                println!("Engine - Incoming message = {incoming_message}");
+                shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
+                read_barrier.store(true, Ordering::Release);
+
+            }
+
+            shared_mem.flush().expect("Failed to flush");
+        }
+    }
+
     let mut input_dir = Vec2::ZERO;
     let mut cam_input_dir = Vec2::ZERO;
     // println!("CAPTURING INPUT!");

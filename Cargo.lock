@@ -2587,13 +2587,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "material_editor"
+name = "material_editor_gui"
 version = "0.1.0"
 dependencies = [
  "eframe 0.31.1",
  "egui_extras",
  "env_logger",
  "memmap2 0.9.5",
+ "once_cell",
  "rfd",
 ]
 
@@ -2605,7 +2606,9 @@ dependencies = [
  "eframe 0.24.1",
  "game_asset",
  "game_module_macro",
- "material_editor",
+ "material_editor_gui",
+ "memmap2 0.9.5",
+ "once_cell",
  "rand 0.9.1",
  "serde",
  "serde_json",

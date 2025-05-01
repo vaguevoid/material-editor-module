@@ -2,54 +2,33 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 use std::{
     env,
-    path::{Path, PathBuf},
+    path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Mutex},
 };
 
-// it's an example
 use eframe::egui::{self, TextEdit};
-use memmap2::{MmapMut, MmapOptions};
-use std::fs::{File, OpenOptions};
-use std::io::Write;
+use memmap2::MmapMut;
+use once_cell::sync::Lazy;
+use std::fs::OpenOptions;
 
 mod keypad;
 use keypad::Keypad;
 
-fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 480.0]),
-        ..Default::default()
-    };
-
-    // Create or open a file for shared memory
+static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .open("shared_memory_gui.bin")
+        .open("shared_memory.bin")
         .expect("Failed to open file");
-    file.set_len(4096).expect("Failed to resize file");
-    let mut mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") };
-    mmap[..5].copy_from_slice(b"Hello");
-    mmap.flush().expect("Failed to flush");
 
-    eframe::run_native(
-        "Custom Keypad App",
-        options,
-        Box::new(|cc| {
-            // Use the dark theme
-            cc.egui_ctx.set_theme(egui::Theme::Dark);
-            // This gives us image support:
-            egui_extras::install_image_loaders(&cc.egui_ctx);
+    file.set_len(4096).expect("Failed to set file size");
 
-            Ok(Box::<MaterialEditor>::default())
-        }),
-    )
-}
+    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
+});
+
 
 struct MaterialEditor {
     file_path: PathBuf,
-    age: u32,
     keypad: Keypad,
 }
 
@@ -61,7 +40,6 @@ impl Default for MaterialEditor {
 
         Self {
             file_path,
-            age: 42,
             keypad: Keypad::new(),
         }
     }
@@ -69,6 +47,26 @@ impl Default for MaterialEditor {
 
 impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+
+        unsafe {
+            if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+    
+                let read_barrier = {
+                    &*(shared_mem.as_ptr() as *mut AtomicBool)    
+                };
+    
+                if !read_barrier.load(Ordering::Acquire) {
+                    
+                    let incoming_message = std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
+                    println!("Gui - Incoming message = {incoming_message}");
+                    shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
+                    read_barrier.store(true, Ordering::Release);
+                }
+    
+                shared_mem.flush().expect("Failed to flush");
+            }
+        }
+
         egui::Window::new("Custom Keypad")
             .default_pos([100.0, 100.0])
             .title_bar(true)
@@ -105,4 +103,25 @@ impl eframe::App for MaterialEditor {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.keypad.bump_events(ctx, raw_input);
     }
+}
+
+fn main() -> eframe::Result {
+    env_logger::init();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 480.0]),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Material Editor",
+        options,
+        Box::new(|cc| {
+            // Use the dark theme
+            cc.egui_ctx.set_theme(egui::Theme::Dark);
+            // This gives us image support:
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            Ok(Box::<MaterialEditor>::default())
+        }),
+    )
 }
