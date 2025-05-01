@@ -1,7 +1,9 @@
 use game_asset::{
-    ecs_module::GpuInterface, resource_managers::material_manager::DEFAULT_SHADER_TEXT,
+    ecs_module::GpuInterface,
+    resource_managers::material_manager::DEFAULT_SHADER_ID,
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
+use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
 
 use once_cell::sync::Lazy;
 
@@ -16,7 +18,12 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use void_public::{event::input::KeyCode, graphics::MaterialId, input::InputState, *};
+use void_public::{
+    event::input::KeyCode,
+    graphics::{MaterialId, MaterialParameters, TextureRender},
+    input::InputState,
+    *,
+};
 
 const PLAYER_SPEED: f32 = 1_f32;
 
@@ -130,7 +137,14 @@ fn spawn_scene() {
 }
 
 #[system]
-fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut MaterialEditor) {
+fn update_shared_mem(
+    gpu_interface: &mut GpuInterface,
+    material_editor: &mut MaterialEditor,
+    gpu_resource: &mut GpuResource,
+    mut texture_query: Query<(&TextureRender, &mut MaterialParameters)>,
+) {
+    let mut new_material_id: Option<MaterialId> = None;
+
     unsafe {
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
             let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
@@ -155,13 +169,78 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                             let parts: Vec<&str> =
                                 incoming_message.split("##delimiter##").collect();
 
+                            /*     let uniform_snippet = parts[1]
+                            .lines()
+                            .map(|line| {
+                                let parts: Vec<&str> =
+                                    line.split('=').map(|s| s.trim()).collect();
+                                if parts.len() == 2 {
+                                    format!("{}:{}", parts[0], parts[1].replace('"', ""))
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .collect::<Vec<String>>()
+                                .join("");
+
+                            let uniform_snippet = indoc::formatdoc!(
+                                "struct SceneInstance {{
+                            \tlocal_to_world: mat4x4f,
+                            \tcolor: vec4f,
+                            \tuv_scale_offset: vec4f,
+                            \t{}}};",
+                                uniform_snippet
+                            );
+
                             let shader_snippet = DEFAULT_SHADER_TEXT;
                             let shader_snippet =
-                                shader_snippet.replace("%get_world_offset", parts[1]);
+                                shader_snippet.replace("%uniforms", &uniform_snippet);
+                            let shader_snippet = shader_snippet.replace("%textures", parts[2]);
                             let shader_snippet =
-                                shader_snippet.replace("%get_fragment_color", parts[2]);
+                                shader_snippet.replace("%get_world_offset", parts[3]);
+                            let shader_snippet =
+                                shader_snippet.replace("%get_fragment_color", parts[4]);*/
+// 
 
-                            println!("{shader_snippet}");
+     
+                            let end_of_color = parts[4].find('\0').unwrap_or(parts.len());
+                            let frag_color = &parts[4][..end_of_color];
+
+
+                            let toml_shader = format!(
+                                "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
+                                parts[3].replace('\n', "").trim_end().trim_start(),
+                                frag_color.replace('\n', "").trim_end().trim_start(),
+                                parts[1].replace('\n', "").trim_end().trim_start(),
+                                parts[2].replace('\n', "").trim_end(),
+                            );
+                            dbg!("---> {}", &toml_shader);
+                            let mat_id = gpu_interface
+                                .material_manager
+                                .register_material_from_string(
+                                    DEFAULT_SHADER_ID,
+                                    "test_mat",
+                                    &toml_shader,
+                                );
+
+                            println!("mat_id = {:?}", mat_id);
+
+                            if let Ok(material_id) = mat_id {
+                                new_material_id = Some(material_id);
+                                let resolve_target = gpu_resource
+                                .texture_manager
+                                .get_render_target(RenderTargetType::ColorResolve);
+
+                                println!("registering pipeline");
+                                gpu_resource.pipeline_manager.register_pipeline(
+                                    material_id,
+                                    resolve_target.texture.format(),
+                                    4,
+                                    &gpu_resource.device,
+                                    &gpu_interface.material_manager,
+                                    wgpu::BlendState::ALPHA_BLENDING,
+                                );
+                            }
                             println!("Module - Material Compiled");
                             // Update gui with material snippets
                             /*  outgoing_command = format!(
@@ -189,6 +268,13 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
 
             shared_mem.flush().expect("Failed to flush");
         }
+    }
+
+    if new_material_id.is_some() {
+        println!("Setting new material id {}", new_material_id.unwrap());
+        texture_query.for_each(|(_, parameters)| {
+            parameters.material_id = new_material_id.unwrap();
+        });
     }
 }
 
@@ -289,7 +375,7 @@ fn process_input(
             //if player_input.is_free_camera {
             let delta_cam_pos =
                 (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
-            cam_transform.position += delta_cam_pos;
+            cam_transform.position.set(cam_transform.position.get() + delta_cam_pos);
         }
     }
 
@@ -307,8 +393,8 @@ fn process_input(
         }
 
         let delta_pos = movement_input * PLAYER_SPEED;
-        let new_local_pos = transform.position.xy() + delta_pos;
-        transform.position = new_local_pos.extend(0f32);
+        let new_local_pos = Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
+        transform.position = linalg::Vec3::from_xyz(new_local_pos.x, new_local_pos.y, 0.);
     }
 
     player_input.is_firing = false;

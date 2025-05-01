@@ -141,7 +141,7 @@ impl eframe::App for MaterialEditor {
                 [usable_width, 150.],
                 TextEdit::multiline(&mut self.world_offset_text)
                     .code_editor()
-                    .desired_rows(20)
+                    .desired_rows(10)
                     .font(egui::TextStyle::Monospace),
             );
 
@@ -151,7 +151,7 @@ impl eframe::App for MaterialEditor {
                 [usable_width, 150.],
                 TextEdit::multiline(&mut self.frag_color_text)
                     .code_editor()
-                    .desired_rows(20)
+                    .desired_rows(10)
                     .font(egui::TextStyle::Monospace),
             );
 
@@ -159,8 +159,11 @@ impl eframe::App for MaterialEditor {
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
                 cmd_string = format!(
-                    "compile ##delimiter## {} ##delimiter## {}",
-                    self.world_offset_text, self.frag_color_text
+                    "compile ##delimiter## {} ##delimiter## {} ##delimiter## {} ##delimiter## {}",
+                    self.uniforms_text,
+                    self.textures_text,
+                    self.world_offset_text,
+                    self.frag_color_text
                 );
             }
 
@@ -179,17 +182,14 @@ impl eframe::App for MaterialEditor {
                     let incoming_message =
                         std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
+                    // TODO: Always true
                     if incoming_message.len() > 1 {
-                        // TODO: Always true
+                        /*
                         let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
 
                         if parts.len() >= 3 {
                             self.world_offset_text = parts[1].to_string();
                             self.frag_color_text = parts[2].to_string();
-                        }
-                        /*              println!("GUI - Incoming msg {} len = {}", incoming_message, incoming_message.len());
-                        for (i, part) in parts.iter().enumerate() {
-                            print!("    {i}: {part}");
                         }*/
                     }
                     shared_mem[1..].fill(b'\0');
@@ -215,7 +215,7 @@ impl eframe::App for MaterialEditor {
 fn main() -> eframe::Result {
     env_logger::init();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 800.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 800.0]).with_position([800.0, 100.0]),
         ..Default::default()
     };
 
