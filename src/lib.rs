@@ -1,5 +1,5 @@
 use game_asset::{
-    ecs_module::GpuInterface, resource_managers::material_manager::DEFAULT_SHADER_ID,
+    ecs_module::GpuInterface, resource_managers::material_manager::{DEFAULT_SHADER_ID, DEFAULT_SHADER_TEXT},
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
@@ -92,7 +92,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
         .open("shared_memory.bin")
         .expect("Failed to open file");
 
-    file.set_len(4096).expect("Failed to set file size");
+    file.set_len(131072).expect("Failed to set file size");
 
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
 });
@@ -103,6 +103,11 @@ fn init_shared_mem() {
     let _ = Command::new(material_editor_gui)
         .spawn()
         .expect("Failed to start Project B");
+
+        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+            shared_mem[0..].fill(b'\0');
+        }
+    
 }
 
 #[system_once]
@@ -139,8 +144,8 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                     .collect();
                 let mut outgoing_command = String::new();
 
+                // Todo: always true
                 if incoming_command.len() > 0 {
-                    // Todo: always true
                     // Load mateirals
                     if incoming_command[0] == "load_toml" {
                         println!("Loading TOML {}...", incoming_command[1]);
@@ -166,6 +171,7 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                                         .material_manager
                                         .get_material(material_editor.material_id)
                                     {
+                                        // Update gui with material snippets
                                         outgoing_command = format!(
                                             "toml_loaded ##delimiter## {} ##delimiter## {}",
                                             mat.world_offset_body(),
@@ -181,7 +187,25 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                             }
                         }
                     } else if incoming_command[0] == "compile" {
-                        println!("Module - Compile material!");
+                        println!("Module - Compile material ----");
+                        if let Some(mat) = gpu_interface
+                            .material_manager
+                            .get_material(material_editor.material_id)
+                        {
+                            let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
+
+                            let shader_snippet = DEFAULT_SHADER_TEXT;
+                            let shader_snippet = shader_snippet.replace("%get_world_offset", parts[1]);
+                            let shader_snippet = shader_snippet.replace("%get_fragment_color", parts[2]);
+                            
+                            println!("{shader_snippet}");
+                            // Update gui with material snippets
+                          /*  outgoing_command = format!(
+                                "toml_loaded ##delimiter## {} ##delimiter## {}",
+                                mat.world_offset_body(),
+                                mat.frag_color_body()
+                            );*/
+                        }
                     } else {
                         //    println!("Module - Unknown Command {}", incoming_command[0]);
                     }

@@ -18,11 +18,8 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
-        .create(true)
         .open("shared_memory.bin")
         .expect("Failed to open file");
-
-    file.set_len(4096).expect("Failed to set file size");
 
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
 });
@@ -94,7 +91,7 @@ impl eframe::App for MaterialEditor {
             ui.add_space(text_height);
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
-                cmd_string = format!("compile");
+                cmd_string = format!("compile ##delimiter## {} ##delimiter## {}", self.world_offset_text, self.frag_color_text);
             }
 
             ui.add_space(text_height);
@@ -128,6 +125,7 @@ impl eframe::App for MaterialEditor {
                     shared_mem[1..].fill(b'\0');
 
                     if cmd_string.len() > 0 {
+                       // println!("Gui - Sending command wth len {} {cmd_string}", cmd_string.len());
                         shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
                     }
 
@@ -147,7 +145,7 @@ impl eframe::App for MaterialEditor {
 fn main() -> eframe::Result {
     env_logger::init();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 480.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 800.0]),
         ..Default::default()
     };
 
