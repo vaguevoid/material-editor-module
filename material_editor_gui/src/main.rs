@@ -43,21 +43,8 @@ impl Default for MaterialEditor {
 
 impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        unsafe {
-            if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-                let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
-                if !read_barrier.load(Ordering::Acquire) {
-                    let incoming_message =
-                        std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
-                    println!("Gui - Incoming message = {incoming_message}");
-                    shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
-                    read_barrier.store(true, Ordering::Release);
-                }
-
-                shared_mem.flush().expect("Failed to flush");
-            }
-        }
+        let mut cmd_string = String::new();
 
         egui::Window::new("Material Editor")
             .default_pos([100.0, 100.0])
@@ -66,7 +53,12 @@ impl eframe::App for MaterialEditor {
                 ui.horizontal(|ui| {
                     let file_button = ui.button("File: ");
                     if file_button.clicked() {
-                        self.file_path = rfd::FileDialog::new().pick_file().unwrap_or(".\\".into())
+                        if let Some(file_path) = rfd::FileDialog::new().pick_file() {
+
+                                self.file_path = file_path;
+                                cmd_string = format!("load_file {}", self.file_path.to_str().unwrap());
+               
+                        }
                     }
 
                     ui.text_edit_singleline(&mut self.file_path.to_str().unwrap());
@@ -88,9 +80,27 @@ impl eframe::App for MaterialEditor {
                     self.age
                 ));*/
             });
+
+            if cmd_string.len() > 0 {
+                unsafe {
+                    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+                        let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+        
+                        if read_barrier.load(Ordering::Acquire) {
+                            let incoming_message =
+                                std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
+                            println!("Incoming message is {incoming_message}");
+                            shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
+                            read_barrier.store(false, Ordering::Release);
+                        }
+        
+                        shared_mem.flush().expect("Failed to flush");
+                    }
+                }
+            }
     }
 
-    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
         //  self.keypad.bump_events(ctx, raw_input);
     }
 }

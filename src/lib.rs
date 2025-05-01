@@ -84,7 +84,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 
 #[system_once]
 fn init_shared_mem() {
-    let material_editor_gui = "./target/debug/material_editor.exe";
+    let material_editor_gui = "./target/debug/material_editor_gui.exe";
     let _ = Command::new(material_editor_gui)
         .spawn()
         .expect("Failed to start Project B");
@@ -115,12 +115,13 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
             let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
-            // Safe to Access?
             if !read_barrier.load(Ordering::Acquire) {
                 let incoming_message =
-                    std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
+                    std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
                 println!("Engine - Incoming message = {incoming_message}");
-                shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
+
+                let msg = b"Engine Frame Count is {FRAME_COUNTER}";
+                shared_mem[1..msg.len() + 1].copy_from_slice(msg);
                 read_barrier.store(true, Ordering::Release);
             }
 
