@@ -69,14 +69,19 @@ impl eframe::App for MaterialEditor {
             });
 
         if cmd_string.len() > 0 {
+            println!("GUI - Command Entered {cmd_string}...");
             unsafe {
                 if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
                     let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
+                    println!("  Acquiring lock");
                     if read_barrier.load(Ordering::Acquire) {
                         let incoming_message =
                             std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
-                        println!("Incoming message is {incoming_message}.  pushing {}", cmd_string);
+                        println!(
+                            "   Incoming message is {incoming_message}.  pushing {}",
+                            cmd_string
+                        );
                         shared_mem.fill(0);
                         shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
                         read_barrier.store(false, Ordering::Release);

@@ -1,6 +1,6 @@
 use game_asset::{
     ecs_module::GpuInterface,
-    resource_managers::material_manager::DEFAULT_SHADER_ID,
+    resource_managers::material_manager::{self, DEFAULT_SHADER_ID},
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
@@ -135,14 +135,15 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                 let incoming_message =
                     std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                let command: Vec<&str> = incoming_message.split(|c: char| c.is_whitespace() || c == '\0').collect();
+                let incoming_command: Vec<&str> = incoming_message.split(|c: char| c.is_whitespace() || c == '\0').collect();
 
+                let mut outgoing_command = String::new();
 
-                if command.len() > 0 {
+                if incoming_command.len() > 0 {
                     // Load mateirals
-                    if command[0] == "load_toml" {
-                        println!("Loading TOML {}...", command[1]);
-                        let file_path = command[1].replace("/", "\\");
+                    if incoming_command[0] == "load_toml" {
+                        println!("Loading TOML {}...", incoming_command[1]);
+                        let file_path = incoming_command[1].replace("/", "\\");
                       //  let file_path = file_path.remove('\0');
 
                         match fs::read_to_string(file_path) {
@@ -160,6 +161,10 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                                         material_editor.material_id
                                     );
                                     material_editor.material_id = material_id;
+                                    
+                                    if let Some(mat) = gpu_interface.material_manager.get_material(material_editor.material_id) {
+                                        outgoing_command = format!("toml_loaded {}", mat.frag_color_body());
+                                    }
                                 } else {
                                     println!("  Failed to load");
                                 }
@@ -170,8 +175,11 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                         }
                     }
                 }
-                let msg = b"Engine Frame Count is {FRAME_COUNTER}";
-                shared_mem[1..msg.len() + 1].copy_from_slice(msg);
+
+                shared_mem.fill(0);
+                if !outgoing_command.is_empty() {
+                    shared_mem[1..outgoing_command.len() + 1].copy_from_slice(outgoing_command.as_bytes());
+                }
                 read_barrier.store(true, Ordering::Release);
             }
 
