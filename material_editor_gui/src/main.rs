@@ -2,16 +2,17 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 use std::{
     env,
-    path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Mutex},
+    path::PathBuf,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use eframe::egui::{self, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
 use std::fs::OpenOptions;
-
-mod keypad;
-use keypad::Keypad;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
@@ -26,10 +27,8 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
 });
 
-
 struct MaterialEditor {
     file_path: PathBuf,
-    keypad: Keypad,
 }
 
 impl MaterialEditor {}
@@ -38,36 +37,29 @@ impl Default for MaterialEditor {
     fn default() -> Self {
         let file_path: PathBuf = env::current_dir().unwrap();
 
-        Self {
-            file_path,
-            keypad: Keypad::new(),
-        }
+        Self { file_path }
     }
 }
 
 impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
         unsafe {
             if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-    
-                let read_barrier = {
-                    &*(shared_mem.as_ptr() as *mut AtomicBool)    
-                };
-    
+                let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+
                 if !read_barrier.load(Ordering::Acquire) {
-                    
-                    let incoming_message = std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
+                    let incoming_message =
+                        std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
                     println!("Gui - Incoming message = {incoming_message}");
                     shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
                     read_barrier.store(true, Ordering::Release);
                 }
-    
+
                 shared_mem.flush().expect("Failed to flush");
             }
         }
 
-        egui::Window::new("Custom Keypad")
+        egui::Window::new("Material Editor")
             .default_pos([100.0, 100.0])
             .title_bar(true)
             .show(ctx, |ui| {
@@ -96,12 +88,10 @@ impl eframe::App for MaterialEditor {
                     self.age
                 ));*/
             });
-
-        self.keypad.show(ctx);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        self.keypad.bump_events(ctx, raw_input);
+        //  self.keypad.bump_events(ctx, raw_input);
     }
 }
 

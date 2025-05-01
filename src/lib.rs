@@ -1,21 +1,19 @@
-mod asset_loading;
-
-//use crate::asset_loading::register_texture;
-
-use game_module_macro::{system, system_once, Component};
+use game_module_macro::{Component, system, system_once};
 
 use once_cell::sync::Lazy;
 
 use memmap2::MmapMut;
-use std::ffi::CString;
-use std::fs::{self, OpenOptions};
-use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use void_public::event::input::KeyCode;
-use void_public::input::InputState;
-use void_public::*;
+use std::{
+    ffi::CString,
+    fs::{self, OpenOptions},
+    path::Path,
+    process::Command,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use void_public::{event::input::KeyCode, input::InputState, *};
 
 const PLAYER_SPEED: f32 = 1_f32;
 
@@ -84,15 +82,12 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
 });
 
-static mut FRAME_COUNTER: u32 = 0_u32;
-
 #[system_once]
 fn init_shared_mem() {
     let material_editor_gui = "./target/debug/material_editor.exe";
-     let _ = Command::new(material_editor_gui)
-         .spawn()
+    let _ = Command::new(material_editor_gui)
+        .spawn()
         .expect("Failed to start Project B");
-    
 }
 
 #[system_once]
@@ -115,27 +110,18 @@ fn spawn_scene() {
 }
 
 #[system]
-fn capture_input(
-    input_state: &InputState,
-    aspect: &Aspect,
-    mut query_player_input: Query<&mut PlayerInput>,
-) {
-
+fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
     unsafe {
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-
-            let read_barrier = {
-                &*(shared_mem.as_ptr() as *mut AtomicBool)    
-            };
+            let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
             // Safe to Access?
             if !read_barrier.load(Ordering::Acquire) {
-                
-                let incoming_message = std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
+                let incoming_message =
+                    std::str::from_utf8(&shared_mem[..5]).expect("Invalid UTF-8");
                 println!("Engine - Incoming message = {incoming_message}");
                 shared_mem[..].copy_from_slice(b"Engine Frame Count is {FRAME_COUNTER}");
                 read_barrier.store(true, Ordering::Release);
-
             }
 
             shared_mem.flush().expect("Failed to flush");
@@ -180,7 +166,6 @@ fn capture_input(
 
         if input_state.mouse.buttons.0[0].just_pressed() {
             player_input.active_player = 0;
-
         }
 
         if key_just_pressed(input_state, KeyCode::Digit1) {
@@ -271,5 +256,24 @@ fn key_is_down(input_state: &InputState, key_code: KeyCode) -> bool {
     input_state.keys[key_code].pressed()
 }
 
+/*
+pub fn register_texture(
+    texture_path: &str,
+    load_into_atlas: bool,
+    gpu_interface: &mut GpuInterface,
+    new_texture_event_writer: &EventWriter<NewTexture>,
+) -> TextureId {
+    let id = gpu_interface
+        .texture_asset_manager
+        .register_next_texture_id();
+    let pending_texture = PendingTexture::new(id, &texture_path.into(), load_into_atlas);
+    gpu_interface
+        .texture_asset_manager
+        .load_texture_by_pending_texture(&pending_texture, new_texture_event_writer)
+        .unwrap();
+    id
+}
+
+*/
 // This includes auto-generated C FFI code (saves you from writing it manually).
 include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
