@@ -1,6 +1,6 @@
 use game_asset::{
     ecs_module::GpuInterface,
-    resource_managers::material_manager::{self, DEFAULT_SHADER_ID},
+    resource_managers::material_manager::DEFAULT_SHADER_ID,
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
@@ -136,7 +136,6 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                     std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
                 let incoming_command: Vec<&str> = incoming_message.split(|c: char| c.is_whitespace() || c == '\0').collect();
-
                 let mut outgoing_command = String::new();
 
                 if incoming_command.len() > 0 {
@@ -144,7 +143,6 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                     if incoming_command[0] == "load_toml" {
                         println!("Loading TOML {}...", incoming_command[1]);
                         let file_path = incoming_command[1].replace("/", "\\");
-                      //  let file_path = file_path.remove('\0');
 
                         match fs::read_to_string(file_path) {
                             Ok(toml_string) => {
@@ -176,10 +174,14 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                     }
                 }
 
+                // Clear shared_mem buffer
                 shared_mem.fill(0);
+
+                // Write outgoing commands
                 if !outgoing_command.is_empty() {
                     shared_mem[1..outgoing_command.len() + 1].copy_from_slice(outgoing_command.as_bytes());
                 }
+
                 read_barrier.store(true, Ordering::Release);
             }
 
