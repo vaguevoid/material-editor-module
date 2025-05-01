@@ -161,7 +161,7 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                                     material_editor.material_id = material_id;
                                     
                                     if let Some(mat) = gpu_interface.material_manager.get_material(material_editor.material_id) {
-                                        outgoing_command = format!("toml_loaded {}", mat.frag_color_body());
+                                        outgoing_command = format!("toml_loaded ##delimiter## {} ##delimiter## {}", mat.world_offset_body(), mat.frag_color_body());
                                     }
                                 } else {
                                     println!("  Failed to load");
@@ -175,7 +175,7 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                 }
 
                 // Clear shared_mem buffer
-                shared_mem.fill(0);
+                shared_mem[1..].fill(b'\0');
 
                 // Write outgoing commands
                 if !outgoing_command.is_empty() {

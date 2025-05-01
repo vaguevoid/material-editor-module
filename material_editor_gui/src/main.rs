@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use eframe::egui::{self, TextEdit};
+use eframe::egui::{self, CentralPanel, Context, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
 use std::fs::OpenOptions;
@@ -29,6 +29,8 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 
 struct MaterialEditor {
     file_path: PathBuf,
+    world_offset_text: String,
+    frag_color_text: String,
 }
 
 impl MaterialEditor {}
@@ -37,7 +39,11 @@ impl Default for MaterialEditor {
     fn default() -> Self {
         let file_path: PathBuf = env::current_dir().unwrap();
 
-        Self { file_path }
+        Self {
+            file_path,
+            world_offset_text: "".to_string(),
+            frag_color_text : "".to_string(),
+        }
     }
 }
 
@@ -45,10 +51,14 @@ impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut cmd_string = String::new();
 
-        egui::Window::new("Material Editor")
-            .default_pos([100.0, 100.0])
-            .title_bar(true)
+        CentralPanel::default()
             .show(ctx, |ui| {
+                let available_rect = ctx.available_rect();
+                let usable_width = ui.max_rect().width() - ui.spacing().item_spacing.x;
+
+
+                ui.set_min_size(available_rect.size());
+
                 ui.horizontal(|ui| {
                     let file_button = ui.button("File: ");
                     if file_button.clicked() {
@@ -60,11 +70,19 @@ impl eframe::App for MaterialEditor {
 
                     ui.text_edit_singleline(&mut self.file_path.to_str().unwrap());
                 });
-                ui.add(
-                    TextEdit::multiline(&mut "".to_string())
-                        .code_editor() // Optimizes for code input
-                        .desired_rows(10) // Sets the initial height
-                        .font(egui::TextStyle::Monospace), // Uses monospace font for better readability
+                ui.add_sized(
+                    [usable_width, 150.],
+                    TextEdit::multiline(&mut self.world_offset_text)
+                        .code_editor()
+                        .desired_rows(20)
+                        .font(egui::TextStyle::Monospace),
+                );
+                ui.add_sized(
+                    [usable_width, 150.],
+                    TextEdit::multiline(&mut self.frag_color_text)
+                        .code_editor()
+                        .desired_rows(20)
+                        .font(egui::TextStyle::Monospace),
                 );
             });
 
@@ -75,10 +93,21 @@ impl eframe::App for MaterialEditor {
                     if read_barrier.load(Ordering::Acquire) {
                         let incoming_message =
                             std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
-                        if !incoming_message.is_empty() {
+                
+                        if incoming_message.len() > 1 { // TODO: Always true
+                            let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
+
+                            if parts.len() >= 3 {
+                                self.world_offset_text = parts[1].to_string();
+                                self.frag_color_text = parts[2].to_string();
+                            }
+                            println!("GUI - Incoming msg {} len = {}", incoming_message, incoming_message.len());
+                            for (i, part) in parts.iter().enumerate() {
+                                print!("    {i}: {part}");
+                            }
 
                         }
-                        shared_mem.fill(0);
+                        shared_mem[1..].fill(b'\0');
 
                         if cmd_string.len() > 0 {
                             shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
