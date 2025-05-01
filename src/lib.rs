@@ -1,4 +1,8 @@
-use game_module_macro::{Component, system, system_once};
+use game_asset::{
+    ecs_module::GpuInterface,
+    resource_managers::material_manager::DEFAULT_SHADER_ID,
+};
+use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
 use once_cell::sync::Lazy;
 
@@ -13,7 +17,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use void_public::{event::input::KeyCode, input::InputState, *};
+use void_public::{event::input::KeyCode, graphics::MaterialId, input::InputState, *};
 
 const PLAYER_SPEED: f32 = 1_f32;
 
@@ -69,6 +73,18 @@ struct Timer {
     pub time_remaining: f32,
 }
 
+#[derive(ResourceWithoutSerialize)]
+struct MaterialEditor {
+    material_id: MaterialId,
+}
+
+impl Default for MaterialEditor {
+    fn default() -> Self {
+        MaterialEditor {
+            material_id: MaterialId(0),
+        }
+    }
+}
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
         .read(true)
@@ -110,7 +126,7 @@ fn spawn_scene() {
 }
 
 #[system]
-fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
+fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut MaterialEditor) {
     unsafe {
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
             let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
@@ -118,8 +134,42 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
             if !read_barrier.load(Ordering::Acquire) {
                 let incoming_message =
                     std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
-                println!("Engine - Incoming message = {incoming_message}");
 
+                let command: Vec<&str> = incoming_message.split(|c: char| c.is_whitespace() || c == '\0').collect();
+
+
+                if command.len() > 0 {
+                    // Load mateirals
+                    if command[0] == "load_toml" {
+                        println!("Loading TOML {}...", command[1]);
+                        let file_path = command[1].replace("/", "\\");
+                      //  let file_path = file_path.remove('\0');
+
+                        match fs::read_to_string(file_path) {
+                            Ok(toml_string) => {
+                                if let Ok(material_id) = gpu_interface
+                                    .material_manager
+                                    .register_material_from_string(
+                                        DEFAULT_SHADER_ID,
+                                        "test shader",
+                                        &toml_string,
+                                    )
+                                {
+                                    println!(
+                                        "  Registering with material manager.  MatId = {}",
+                                        material_editor.material_id
+                                    );
+                                    material_editor.material_id = material_id;
+                                } else {
+                                    println!("  Failed to load");
+                                }
+                            }
+                            Err(e) => {
+                                println!("  Failed to load.  Error: {e}");
+                            }
+                        }
+                    }
+                }
                 let msg = b"Engine Frame Count is {FRAME_COUNTER}";
                 shared_mem[1..msg.len() + 1].copy_from_slice(msg);
                 read_barrier.store(true, Ordering::Release);
@@ -128,7 +178,10 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
             shared_mem.flush().expect("Failed to flush");
         }
     }
+}
 
+#[system]
+fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
     let mut input_dir = Vec2::ZERO;
     let mut cam_input_dir = Vec2::ZERO;
     // println!("CAPTURING INPUT!");

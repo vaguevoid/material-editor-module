@@ -43,7 +43,6 @@ impl Default for MaterialEditor {
 
 impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
         let mut cmd_string = String::new();
 
         egui::Window::new("Material Editor")
@@ -54,10 +53,8 @@ impl eframe::App for MaterialEditor {
                     let file_button = ui.button("File: ");
                     if file_button.clicked() {
                         if let Some(file_path) = rfd::FileDialog::new().pick_file() {
-
-                                self.file_path = file_path;
-                                cmd_string = format!("load_file {}", self.file_path.to_str().unwrap());
-               
+                            self.file_path = file_path;
+                            cmd_string = format!("load_toml {}", self.file_path.to_str().unwrap());
                         }
                     }
 
@@ -69,35 +66,26 @@ impl eframe::App for MaterialEditor {
                         .desired_rows(10) // Sets the initial height
                         .font(egui::TextStyle::Monospace), // Uses monospace font for better readability
                 );
-
-                /* ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
-                if ui.button("Increment").clicked() {
-                    self.age += 1;
-                }
-                ui.label(format!(
-                    "Hello '{}', age {}",
-                    &mut self.file_path.to_str().unwrap_or(".\""),
-                    self.age
-                ));*/
             });
 
-            if cmd_string.len() > 0 {
-                unsafe {
-                    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-                        let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
-        
-                        if read_barrier.load(Ordering::Acquire) {
-                            let incoming_message =
-                                std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
-                            println!("Incoming message is {incoming_message}");
-                            shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
-                            read_barrier.store(false, Ordering::Release);
-                        }
-        
-                        shared_mem.flush().expect("Failed to flush");
+        if cmd_string.len() > 0 {
+            unsafe {
+                if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+                    let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+
+                    if read_barrier.load(Ordering::Acquire) {
+                        let incoming_message =
+                            std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
+                        println!("Incoming message is {incoming_message}.  pushing {}", cmd_string);
+                        shared_mem.fill(0);
+                        shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
+                        read_barrier.store(false, Ordering::Release);
                     }
+
+                    shared_mem.flush().expect("Failed to flush");
                 }
             }
+        }
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
