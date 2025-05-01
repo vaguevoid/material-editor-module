@@ -1,5 +1,7 @@
 # Material Editor Engine
 
-* Step 1
+* Build Module + Gui
+cargo build --workspace
 
-* Step 2
+* Run module
+Use VS Code"Run and Debug" button on the left 

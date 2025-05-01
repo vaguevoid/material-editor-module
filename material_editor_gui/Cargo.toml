@@ -1,0 +1,21 @@
+[package]
+name = "material_editor_gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.31.1"
+
+# For image support:
+egui_extras = { version = "0.31.1", features = ["default", "image"]  }
+env_logger = { version = "0.10", default-features = false, features = [
+    "auto-color",
+    "humantime",
+] }
+memmap2 = "0.9"
+once_cell = "1.21"
+rfd = "0.15.3"
+
+[[bin]]
+name = "material_editor_gui"
+path = "src/main.rs"

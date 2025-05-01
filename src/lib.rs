@@ -1,57 +1,37 @@
-mod asset_loading;
+use game_asset::{
+    ecs_module::GpuInterface,
+    resource_managers::{
+        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+    },
+};
+use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
+use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
 
-use crate::asset_loading::register_texture;
+use once_cell::sync::Lazy;
 
-use eframe::egui;
-
-
-use game_asset::ecs_module::GpuInterface;
-use game_module_macro::{init, system, system_once, Component, ResourceWithoutSerialize};
-use rand::prelude::ThreadRng;
-use rand::Rng;
-use std::ffi::CString;
-use std::fs;
-use std::ops::Range;
-use std::path::Path;
-use void_public::coordinate_systems::set_world_position;
-use void_public::event::graphics::NewTexture;
-use void_public::event::input::KeyCode;
-use void_public::graphics::{TextureId, TextureRender};
-use void_public::input::InputState;
-use void_public::*;
+use memmap2::MmapMut;
+use std::{
+    ffi::CString,
+    fs::{self, OpenOptions},
+    path::Path,
+    process::Command,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use void_public::{
+    event::{graphics::NewTexture, input::KeyCode},
+    graphics::{MaterialId, MaterialParameters, TextureId, TextureRender},
+    input::InputState,
+    *,
+};
 
 const PLAYER_SPEED: f32 = 1_f32;
-const MAX_AGENT_SPEED: f32 = 15.0;
 
-const SMALL_TRAP_DISTANCE: f32 = 2.5_f32;
-const SMALL_TRAP_MOVEMENT_MIN: f32 = 0.5_f32;
-const SMALL_TRAP_MOVEMENT_MAX: f32 = 2.0_f32;
-const AGENT_TIMER_RANGE: Range<f32> = 2.0..4.0;
-
-const TWO_PI: f32 = 2.0 * std::f32::consts::PI;
-const ROTATION_SPEED: f32 = 2.0;
 const CAMERA_ZOOM_SPEED: f32 = 2f32;
 const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
-
-#[derive(ResourceWithoutSerialize)]
-struct CustomResource {
-    player_sprite_asset_ids: [TextureId; 4],
-    trap_asset_id: TextureId,
-    star_asset_id: TextureId,
-    pub num_players: u32,
-}
-
-impl Default for CustomResource {
-    fn default() -> Self {
-        Self {
-            player_sprite_asset_ids: [TextureId(0), TextureId(0), TextureId(0), TextureId(0)],
-            trap_asset_id: TextureId(0),
-            star_asset_id: TextureId(0),
-            num_players: 4,
-        }
-    }
-}
 
 #[repr(C)]
 #[derive(Component, Default, serde::Deserialize)]
@@ -100,58 +80,47 @@ struct Timer {
     #[serde(default)]
     pub time_remaining: f32,
 }
-/*
+
 #[derive(ResourceWithoutSerialize)]
-struct MaterialEditorGui {
-    eFrame::
-}*/
-
-#[system_once]
-fn register_assets(
-    gpu_interface: &mut GpuInterface,
-    custom_resource: &mut CustomResource,
-    new_texture_event_writer: EventWriter<NewTexture>,
-    _aspect: &Aspect,
-) {/*
-    custom_resource.player_sprite_asset_ids[0] = register_texture(
-        "textures/player_front.png",
-        true,
-        gpu_interface,
-        &new_texture_event_writer,
-    );*/
+struct MaterialEditor {
+    material_id: MaterialId,
 }
 
-struct MyApp {}
-
-impl Default for MyApp {
+impl Default for MaterialEditor {
     fn default() -> Self {
-        Self {}
+        MaterialEditor {
+            material_id: MaterialId(0),
+        }
     }
 }
+static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("shared_memory.bin")
+        .expect("Failed to open file");
 
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label("Hello, world!");
-        });
+    file.set_len(131072).expect("Failed to set file size");
+
+    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
+});
+
+#[system_once]
+fn init_shared_mem() {
+    let material_editor_gui = "./target/debug/material_editor_gui.exe";
+    let _ = Command::new(material_editor_gui)
+        .spawn()
+        .expect("Failed to start Project B");
+
+    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+        shared_mem[0..].fill(b'\0');
     }
-}
-
-
-#[init]
-fn init_gui() {
-    std::thread::spawn(|| {
-        eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| Box::new(MyApp::default())));
-    });
-    
-
 }
 
 #[system_once]
-fn spawn_scene(custom_resource: &mut CustomResource) {
-    // spawn_input_capture();
-
-    custom_resource.num_players = 4;
+fn spawn_scene() {
     match std::env::current_dir() {
         Ok(path) => println!("The current working directory is: {}", path.display()),
         Err(e) => eprintln!("Error getting current directory: {}", e),
@@ -170,12 +139,147 @@ fn spawn_scene(custom_resource: &mut CustomResource) {
 }
 
 #[system]
-fn capture_input(
-    input_state: &InputState,
-    custom_resource: &mut CustomResource,
-    aspect: &Aspect,
-    mut query_player_input: Query<&mut PlayerInput>,
+fn update_shared_mem(
+    gpu_interface: &mut GpuInterface,
+    material_editor: &mut MaterialEditor,
+    gpu_resource: &mut GpuResource,
+    mut texture_query: Query<(&TextureRender, &mut MaterialParameters)>,
+    new_texture_event_writer: EventWriter<NewTexture>,
 ) {
+    let mut new_material_id: Option<MaterialId> = None;
+    let mut new_tex_id: Option<TextureId> = None;
+
+    unsafe {
+        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+            let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+
+            if !read_barrier.load(Ordering::Acquire) {
+                let incoming_message =
+                    std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
+
+                let incoming_command: Vec<&str> = incoming_message
+                    .split(|c: char| c.is_whitespace() || c == '\0')
+                    .collect();
+                let outgoing_command = String::new();
+
+                // Todo: always true
+                if incoming_command.len() > 0 {
+                    if incoming_command[0] == "load_texture" {
+                        let texture_path = incoming_command[1];
+
+                        println!("load_texture called {texture_path}");
+
+                        let id = if let Some(tex) = gpu_interface
+                            .texture_asset_manager
+                            .get_texture_by_path(&texture_path.into())
+                        {
+                            tex.id()
+                        } else {
+                            let id = gpu_interface
+                                .texture_asset_manager
+                                .register_next_texture_id();
+                            let pending_texture =
+                                PendingTexture::new(id, &texture_path.into(), false);
+                            let _ = gpu_interface
+                                .texture_asset_manager
+                                .load_texture_by_pending_texture(
+                                    &pending_texture,
+                                    &new_texture_event_writer,
+                                );
+                            id
+                        };
+
+                        new_tex_id = Some(id);
+                    } else if incoming_command[0] == "compile" {
+                        println!("Module - Compile material ----");
+                        if let Some(_mat) = gpu_interface
+                            .material_manager
+                            .get_material(material_editor.material_id)
+                        {
+                            let parts: Vec<&str> =
+                                incoming_message.split("##delimiter##").collect();
+
+                            let end_of_color = parts[4].find('\0').unwrap_or(parts.len());
+                            let frag_color = &parts[4][..end_of_color];
+
+                            let toml_shader = format!(
+                                "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
+                                parts[3].replace('\n', "").trim_end().trim_start(),
+                                frag_color.replace('\n', "").trim_end().trim_start(),
+                                parts[1].replace('\n', "").trim_end().trim_start(),
+                                parts[2].replace('\n', "").trim_end(),
+                            );
+
+                            // dbg!("---> {}", &toml_shader);
+                            let mat_id = gpu_interface
+                                .material_manager
+                                .register_material_from_string(
+                                    DEFAULT_SHADER_ID,
+                                    "test_mat",
+                                    &toml_shader,
+                                );
+
+                            println!("mat_id = {:?}", mat_id);
+
+                            if let Ok(material_id) = mat_id {
+                                new_material_id = Some(material_id);
+                                let resolve_target = gpu_resource
+                                    .texture_manager
+                                    .get_render_target(RenderTargetType::ColorResolve);
+
+                                println!("registering pipeline");
+                                gpu_resource.pipeline_manager.register_pipeline(
+                                    material_id,
+                                    resolve_target.texture.format(),
+                                    4,
+                                    &gpu_resource.device,
+                                    &gpu_interface.material_manager,
+                                    wgpu::BlendState::ALPHA_BLENDING,
+                                );
+                            }
+                            println!("Module - Material Compiled");
+                            // Update gui with material snippets
+                            /*  outgoing_command = format!(
+                                "toml_loaded ##delimiter## {} ##delimiter## {}",
+                                mat.world_offset_body(),
+                                mat.frag_color_body()
+                            );*/
+                        }
+                    } else {
+                        //    println!("Module - Unknown Command {}", incoming_command[0]);
+                    }
+                }
+
+                // Clear shared_mem buffer
+                shared_mem[1..].fill(b'\0');
+
+                // Write outgoing commands
+                if !outgoing_command.is_empty() {
+                    shared_mem[1..outgoing_command.len() + 1]
+                        .copy_from_slice(outgoing_command.as_bytes());
+                }
+
+                read_barrier.store(true, Ordering::Release);
+            }
+
+            shared_mem.flush().expect("Failed to flush");
+        }
+    }
+
+    texture_query.for_each(|(sprite, parameters)| {
+        if new_material_id.is_some() {
+            println!("Setting new material id {}", new_material_id.unwrap());
+            parameters.material_id = new_material_id.unwrap();
+        }
+        if new_tex_id.is_some() {
+            println!("Setting new tex id {}", new_tex_id.unwrap());
+            parameters.textures[0] = new_tex_id.unwrap();
+        }
+    });
+}
+
+#[system]
+fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
     let mut input_dir = Vec2::ZERO;
     let mut cam_input_dir = Vec2::ZERO;
     // println!("CAPTURING INPUT!");
@@ -213,48 +317,7 @@ fn capture_input(
         player_input.movement_input = input_dir;
 
         if input_state.mouse.buttons.0[0].just_pressed() {
-            let half_width = aspect.width / 2.0;
-            let half_height = aspect.height / 2.0;
-            match custom_resource.num_players {
-                1 => {
-                    player_input.active_player = 0;
-                }
-                2 => {
-                    player_input.active_player = if input_state.mouse.cursor_position.x < half_width
-                    {
-                        0
-                    } else {
-                        1
-                    };
-                }
-                3 => {
-                    if input_state.mouse.cursor_position.x < half_width {
-                        if input_state.mouse.cursor_position.y < half_height {
-                            player_input.active_player = 2;
-                        } else {
-                            player_input.active_player = 0;
-                        }
-                    } else {
-                        player_input.active_player = 1;
-                    }
-                }
-                4 => {
-                    if input_state.mouse.cursor_position.x < half_width {
-                        if input_state.mouse.cursor_position.y < half_height {
-                            player_input.active_player = 2;
-                        } else {
-                            player_input.active_player = 0;
-                        }
-                    } else {
-                        if input_state.mouse.cursor_position.y < aspect.height / 2.0 {
-                            player_input.active_player = 3;
-                        } else {
-                            player_input.active_player = 1;
-                        }
-                    }
-                }
-                _ => {}
-            }
+            player_input.active_player = 0;
         }
 
         if key_just_pressed(input_state, KeyCode::Digit1) {
@@ -312,7 +375,9 @@ fn process_input(
             //if player_input.is_free_camera {
             let delta_cam_pos =
                 (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
-            cam_transform.position += delta_cam_pos;
+            cam_transform
+                .position
+                .set(cam_transform.position.get() + delta_cam_pos);
         }
     }
 
@@ -330,8 +395,9 @@ fn process_input(
         }
 
         let delta_pos = movement_input * PLAYER_SPEED;
-        let new_local_pos = transform.position.xy() + delta_pos;
-        transform.position = new_local_pos.extend(0f32);
+        let new_local_pos =
+            Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
+        transform.position = linalg::Vec3::from_xyz(new_local_pos.x, new_local_pos.y, 0.);
     }
 
     player_input.is_firing = false;
@@ -343,6 +409,23 @@ fn key_just_pressed(input_state: &InputState, key_just_pressed: KeyCode) -> bool
 
 fn key_is_down(input_state: &InputState, key_code: KeyCode) -> bool {
     input_state.keys[key_code].pressed()
+}
+
+pub fn register_texture(
+    texture_path: &str,
+    load_into_atlas: bool,
+    gpu_interface: &mut GpuInterface,
+    new_texture_event_writer: &EventWriter<NewTexture>,
+) -> TextureId {
+    let id = gpu_interface
+        .texture_asset_manager
+        .register_next_texture_id();
+    let pending_texture = PendingTexture::new(id, &texture_path.into(), load_into_atlas);
+    gpu_interface
+        .texture_asset_manager
+        .load_texture_by_pending_texture(&pending_texture, new_texture_event_writer)
+        .unwrap();
+    id
 }
 
 // This includes auto-generated C FFI code (saves you from writing it manually).
