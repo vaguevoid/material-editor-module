@@ -2974,7 +2974,6 @@ dependencies = [
  "game_module_macro",
  "gpu_web",
  "indoc",
- "material_editor_gui",
  "memmap2 0.9.5",
  "once_cell",
  "rand 0.9.1",
