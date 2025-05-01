@@ -1,7 +1,7 @@
 // #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)]
 use std::{
-    env,
+    env, fs,
     path::PathBuf,
     sync::{
         Mutex,
@@ -26,6 +26,8 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 
 struct MaterialEditor {
     file_path: PathBuf,
+    textures_text: String,
+    uniforms_text: String,
     world_offset_text: String,
     frag_color_text: String,
 }
@@ -38,6 +40,8 @@ impl Default for MaterialEditor {
 
         Self {
             file_path,
+            uniforms_text: "".to_string(),
+            textures_text: "".to_string(),
             world_offset_text: "".to_string(),
             frag_color_text: "".to_string(),
         }
@@ -60,16 +64,79 @@ impl eframe::App for MaterialEditor {
                 if file_button.clicked() {
                     if let Some(file_path) = rfd::FileDialog::new().pick_file() {
                         self.file_path = file_path;
-                        cmd_string = format!("load_toml {}", self.file_path.to_str().unwrap());
+                        if let Ok(material_toml) = fs::read_to_string(&self.file_path) {
+                            let key = "[uniform_types]";
+                            if let Some(snippet_key_idx) = material_toml.find(key) {
+                                let snippet_start = snippet_key_idx + key.len();
+                                let snippet = &material_toml[snippet_start..];
+                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+                                self.uniforms_text = snippet[..snippet_end]
+                                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                                    .to_string();
+                            }
+
+                            let key = "[texture_descs]";
+                            if let Some(snippet_key_idx) = material_toml.find(key) {
+                                let snippet_start = snippet_key_idx + key.len();
+                                let snippet = &material_toml[snippet_start..];
+                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+                                self.textures_text = snippet[..snippet_end]
+                                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                                    .to_string();
+                            }
+
+                            let key = "get_world_offset";
+                            if let Some(snippet_key_idx) = material_toml.find(key) {
+                                let snippet = &material_toml[snippet_key_idx..];
+
+                                let start = snippet.find("\"\"\"").unwrap();
+                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                                self.world_offset_text = snippet[start + 3..start + 3 + end]
+                                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                                    .to_string();
+                            }
+
+                            let key = "get_fragment_color";
+                            if let Some(snippet_key_idx) = material_toml.find(key) {
+                                let snippet = &material_toml[snippet_key_idx..];
+
+                                let start = snippet.find("\"\"\"").unwrap();
+                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                                self.frag_color_text = snippet[start + 3..start + 3 + end]
+                                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                                    .to_string();
+                            }
+                        }
                     }
                 }
 
                 ui.text_edit_singleline(&mut self.file_path.to_str().unwrap());
             });
 
+            // Uniforms
+            ui.add_space(text_height * 2.);
+            ui.label("Uniforms");
+            ui.add_sized(
+                [usable_width, 25.],
+                TextEdit::multiline(&mut self.uniforms_text)
+                    .code_editor()
+                    .desired_rows(5)
+                    .font(egui::TextStyle::Monospace),
+            );
+
+            // Textures
+            ui.add_space(text_height * 2.);
+            ui.label("Textures");
+            ui.add_sized(
+                [usable_width, 25.],
+                TextEdit::multiline(&mut self.textures_text)
+                    .code_editor()
+                    .desired_rows(5)
+                    .font(egui::TextStyle::Monospace),
+            );
+
             ui.add_space(text_height * 2.);
             ui.label("World Offset");
-
             ui.add_sized(
                 [usable_width, 150.],
                 TextEdit::multiline(&mut self.world_offset_text)
@@ -91,7 +158,10 @@ impl eframe::App for MaterialEditor {
             ui.add_space(text_height);
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
-                cmd_string = format!("compile ##delimiter## {} ##delimiter## {}", self.world_offset_text, self.frag_color_text);
+                cmd_string = format!(
+                    "compile ##delimiter## {} ##delimiter## {}",
+                    self.world_offset_text, self.frag_color_text
+                );
             }
 
             ui.add_space(text_height);
@@ -125,7 +195,7 @@ impl eframe::App for MaterialEditor {
                     shared_mem[1..].fill(b'\0');
 
                     if cmd_string.len() > 0 {
-                       // println!("Gui - Sending command wth len {} {cmd_string}", cmd_string.len());
+                        // println!("Gui - Sending command wth len {} {cmd_string}", cmd_string.len());
                         shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
                     }
 

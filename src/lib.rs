@@ -1,5 +1,5 @@
 use game_asset::{
-    ecs_module::GpuInterface, resource_managers::material_manager::{DEFAULT_SHADER_ID, DEFAULT_SHADER_TEXT},
+    ecs_module::GpuInterface, resource_managers::material_manager::DEFAULT_SHADER_TEXT,
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
@@ -89,6 +89,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(true)
         .open("shared_memory.bin")
         .expect("Failed to open file");
 
@@ -104,10 +105,9 @@ fn init_shared_mem() {
         .spawn()
         .expect("Failed to start Project B");
 
-        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-            shared_mem[0..].fill(b'\0');
-        }
-    
+    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+        shared_mem[0..].fill(b'\0');
+    }
 }
 
 #[system_once]
@@ -142,65 +142,29 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                 let incoming_command: Vec<&str> = incoming_message
                     .split(|c: char| c.is_whitespace() || c == '\0')
                     .collect();
-                let mut outgoing_command = String::new();
+                let outgoing_command = String::new();
 
                 // Todo: always true
                 if incoming_command.len() > 0 {
-                    // Load mateirals
-                    if incoming_command[0] == "load_toml" {
-                        println!("Loading TOML {}...", incoming_command[1]);
-                        let file_path = incoming_command[1].replace("/", "\\");
-
-                        match fs::read_to_string(file_path) {
-                            Ok(toml_string) => {
-                                if let Ok(material_id) = gpu_interface
-                                    .material_manager
-                                    .register_material_from_string(
-                                        DEFAULT_SHADER_ID,
-                                        "test shader",
-                                        &toml_string,
-                                    )
-                                {
-                                    println!(
-                                        "  Registering with material manager.  MatId = {}",
-                                        material_editor.material_id
-                                    );
-                                    material_editor.material_id = material_id;
-
-                                    if let Some(mat) = gpu_interface
-                                        .material_manager
-                                        .get_material(material_editor.material_id)
-                                    {
-                                        // Update gui with material snippets
-                                        outgoing_command = format!(
-                                            "toml_loaded ##delimiter## {} ##delimiter## {}",
-                                            mat.world_offset_body(),
-                                            mat.frag_color_body()
-                                        );
-                                    }
-                                } else {
-                                    println!("  Failed to load");
-                                }
-                            }
-                            Err(e) => {
-                                println!("  Failed to load.  Error: {e}");
-                            }
-                        }
-                    } else if incoming_command[0] == "compile" {
+                    if incoming_command[0] == "compile" {
                         println!("Module - Compile material ----");
-                        if let Some(mat) = gpu_interface
+                        if let Some(_mat) = gpu_interface
                             .material_manager
                             .get_material(material_editor.material_id)
                         {
-                            let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
+                            let parts: Vec<&str> =
+                                incoming_message.split("##delimiter##").collect();
 
                             let shader_snippet = DEFAULT_SHADER_TEXT;
-                            let shader_snippet = shader_snippet.replace("%get_world_offset", parts[1]);
-                            let shader_snippet = shader_snippet.replace("%get_fragment_color", parts[2]);
-                            
+                            let shader_snippet =
+                                shader_snippet.replace("%get_world_offset", parts[1]);
+                            let shader_snippet =
+                                shader_snippet.replace("%get_fragment_color", parts[2]);
+
                             println!("{shader_snippet}");
+                            println!("Module - Material Compiled");
                             // Update gui with material snippets
-                          /*  outgoing_command = format!(
+                            /*  outgoing_command = format!(
                                 "toml_loaded ##delimiter## {} ##delimiter## {}",
                                 mat.world_offset_body(),
                                 mat.frag_color_body()
