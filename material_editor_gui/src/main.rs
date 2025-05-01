@@ -25,7 +25,10 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 });
 
 struct MaterialEditor {
-    file_path: PathBuf,
+    shader_path: PathBuf,
+
+    textures: [String; 16],
+
     textures_text: String,
     uniforms_text: String,
     world_offset_text: String,
@@ -36,10 +39,11 @@ impl MaterialEditor {}
 
 impl Default for MaterialEditor {
     fn default() -> Self {
-        let file_path: PathBuf = env::current_dir().unwrap();
+        let shader_path: PathBuf = env::current_dir().unwrap();
 
         Self {
-            file_path,
+            shader_path,
+            textures: std::array::from_fn(|_| String::new()),
             uniforms_text: "".to_string(),
             textures_text: "".to_string(),
             world_offset_text: "".to_string(),
@@ -63,8 +67,8 @@ impl eframe::App for MaterialEditor {
                 let file_button = ui.button("File: ");
                 if file_button.clicked() {
                     if let Some(file_path) = rfd::FileDialog::new().pick_file() {
-                        self.file_path = file_path;
-                        if let Ok(material_toml) = fs::read_to_string(&self.file_path) {
+                        self.shader_path = file_path;
+                        if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
                             let key = "[uniform_types]";
                             if let Some(snippet_key_idx) = material_toml.find(key) {
                                 let snippet_start = snippet_key_idx + key.len();
@@ -109,8 +113,12 @@ impl eframe::App for MaterialEditor {
                         }
                     }
                 }
+                ui.text_edit_singleline(&mut self.shader_path.to_str().unwrap());
 
-                ui.text_edit_singleline(&mut self.file_path.to_str().unwrap());
+                let save_button = ui.button("Save");
+                if save_button.clicked() {
+                    println!("Save button clicked!");
+                }
             });
 
             // Uniforms
@@ -167,10 +175,15 @@ impl eframe::App for MaterialEditor {
                 );
             }
 
-            ui.add_space(text_height);
-            let save_button = ui.button("Save");
-            if save_button.clicked() {
-                println!("Save button clicked!");
+            for i in 0..16 {
+                let file_button = ui.button(format!("Texture[{i}]"));
+                if file_button.clicked() {
+                    if let Some(file_path) = rfd::FileDialog::new().pick_file() {
+                        self.textures[i] = file_path.to_str().unwrap_or("<Error>").to_string();
+                        cmd_string = format!("load_texture {}", self.textures[i]);
+                    }
+                }
+                ui.text_edit_singleline(&mut self.textures[i]);
             }
         });
 
@@ -215,7 +228,9 @@ impl eframe::App for MaterialEditor {
 fn main() -> eframe::Result {
     env_logger::init();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 800.0]).with_position([800.0, 100.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([640.0, 800.0])
+            .with_position([800.0, 100.0]),
         ..Default::default()
     };
 

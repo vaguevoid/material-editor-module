@@ -1,6 +1,8 @@
 use game_asset::{
     ecs_module::GpuInterface,
-    resource_managers::material_manager::DEFAULT_SHADER_ID,
+    resource_managers::{
+        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+    },
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
@@ -19,8 +21,8 @@ use std::{
     },
 };
 use void_public::{
-    event::input::KeyCode,
-    graphics::{MaterialId, MaterialParameters, TextureRender},
+    event::{graphics::NewTexture, input::KeyCode},
+    graphics::{MaterialId, MaterialParameters, TextureId, TextureRender},
     input::InputState,
     *,
 };
@@ -142,8 +144,10 @@ fn update_shared_mem(
     material_editor: &mut MaterialEditor,
     gpu_resource: &mut GpuResource,
     mut texture_query: Query<(&TextureRender, &mut MaterialParameters)>,
+    new_texture_event_writer: EventWriter<NewTexture>,
 ) {
     let mut new_material_id: Option<MaterialId> = None;
+    let mut new_tex_id: Option<TextureId> = None;
 
     unsafe {
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
@@ -160,7 +164,33 @@ fn update_shared_mem(
 
                 // Todo: always true
                 if incoming_command.len() > 0 {
-                    if incoming_command[0] == "compile" {
+                    if incoming_command[0] == "load_texture" {
+                        let texture_path = incoming_command[1];
+
+                        println!("load_texture called {texture_path}");
+
+                        let id = if let Some(tex) = gpu_interface
+                            .texture_asset_manager
+                            .get_texture_by_path(&texture_path.into())
+                        {
+                            tex.id()
+                        } else {
+                            let id = gpu_interface
+                                .texture_asset_manager
+                                .register_next_texture_id();
+                            let pending_texture =
+                                PendingTexture::new(id, &texture_path.into(), false);
+                            let _ = gpu_interface
+                                .texture_asset_manager
+                                .load_texture_by_pending_texture(
+                                    &pending_texture,
+                                    &new_texture_event_writer,
+                                );
+                            id
+                        };
+
+                        new_tex_id = Some(id);
+                    } else if incoming_command[0] == "compile" {
                         println!("Module - Compile material ----");
                         if let Some(_mat) = gpu_interface
                             .material_manager
@@ -169,43 +199,8 @@ fn update_shared_mem(
                             let parts: Vec<&str> =
                                 incoming_message.split("##delimiter##").collect();
 
-                            /*     let uniform_snippet = parts[1]
-                            .lines()
-                            .map(|line| {
-                                let parts: Vec<&str> =
-                                    line.split('=').map(|s| s.trim()).collect();
-                                if parts.len() == 2 {
-                                    format!("{}:{}", parts[0], parts[1].replace('"', ""))
-                                    } else {
-                                        String::new()
-                                    }
-                                })
-                                .collect::<Vec<String>>()
-                                .join("");
-
-                            let uniform_snippet = indoc::formatdoc!(
-                                "struct SceneInstance {{
-                            \tlocal_to_world: mat4x4f,
-                            \tcolor: vec4f,
-                            \tuv_scale_offset: vec4f,
-                            \t{}}};",
-                                uniform_snippet
-                            );
-
-                            let shader_snippet = DEFAULT_SHADER_TEXT;
-                            let shader_snippet =
-                                shader_snippet.replace("%uniforms", &uniform_snippet);
-                            let shader_snippet = shader_snippet.replace("%textures", parts[2]);
-                            let shader_snippet =
-                                shader_snippet.replace("%get_world_offset", parts[3]);
-                            let shader_snippet =
-                                shader_snippet.replace("%get_fragment_color", parts[4]);*/
-// 
-
-     
                             let end_of_color = parts[4].find('\0').unwrap_or(parts.len());
                             let frag_color = &parts[4][..end_of_color];
-
 
                             let toml_shader = format!(
                                 "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
@@ -214,7 +209,8 @@ fn update_shared_mem(
                                 parts[1].replace('\n', "").trim_end().trim_start(),
                                 parts[2].replace('\n', "").trim_end(),
                             );
-                            dbg!("---> {}", &toml_shader);
+
+                            // dbg!("---> {}", &toml_shader);
                             let mat_id = gpu_interface
                                 .material_manager
                                 .register_material_from_string(
@@ -228,8 +224,8 @@ fn update_shared_mem(
                             if let Ok(material_id) = mat_id {
                                 new_material_id = Some(material_id);
                                 let resolve_target = gpu_resource
-                                .texture_manager
-                                .get_render_target(RenderTargetType::ColorResolve);
+                                    .texture_manager
+                                    .get_render_target(RenderTargetType::ColorResolve);
 
                                 println!("registering pipeline");
                                 gpu_resource.pipeline_manager.register_pipeline(
@@ -270,12 +266,16 @@ fn update_shared_mem(
         }
     }
 
-    if new_material_id.is_some() {
-        println!("Setting new material id {}", new_material_id.unwrap());
-        texture_query.for_each(|(_, parameters)| {
+    texture_query.for_each(|(sprite, parameters)| {
+        if new_material_id.is_some() {
+            println!("Setting new material id {}", new_material_id.unwrap());
             parameters.material_id = new_material_id.unwrap();
-        });
-    }
+        }
+        if new_tex_id.is_some() {
+            println!("Setting new tex id {}", new_tex_id.unwrap());
+            parameters.textures[0] = new_tex_id.unwrap();
+        }
+    });
 }
 
 #[system]
@@ -375,7 +375,9 @@ fn process_input(
             //if player_input.is_free_camera {
             let delta_cam_pos =
                 (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
-            cam_transform.position.set(cam_transform.position.get() + delta_cam_pos);
+            cam_transform
+                .position
+                .set(cam_transform.position.get() + delta_cam_pos);
         }
     }
 
@@ -393,7 +395,8 @@ fn process_input(
         }
 
         let delta_pos = movement_input * PLAYER_SPEED;
-        let new_local_pos = Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
+        let new_local_pos =
+            Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
         transform.position = linalg::Vec3::from_xyz(new_local_pos.x, new_local_pos.y, 0.);
     }
 
@@ -408,7 +411,6 @@ fn key_is_down(input_state: &InputState, key_code: KeyCode) -> bool {
     input_state.keys[key_code].pressed()
 }
 
-/*
 pub fn register_texture(
     texture_path: &str,
     load_into_atlas: bool,
@@ -426,6 +428,5 @@ pub fn register_texture(
     id
 }
 
-*/
 // This includes auto-generated C FFI code (saves you from writing it manually).
 include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
