@@ -1,6 +1,5 @@
 use game_asset::{
-    ecs_module::GpuInterface,
-    resource_managers::material_manager::DEFAULT_SHADER_ID,
+    ecs_module::GpuInterface, resource_managers::material_manager::DEFAULT_SHADER_ID,
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
 
@@ -135,10 +134,13 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                 let incoming_message =
                     std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                let incoming_command: Vec<&str> = incoming_message.split(|c: char| c.is_whitespace() || c == '\0').collect();
+                let incoming_command: Vec<&str> = incoming_message
+                    .split(|c: char| c.is_whitespace() || c == '\0')
+                    .collect();
                 let mut outgoing_command = String::new();
 
                 if incoming_command.len() > 0 {
+                    // Todo: always true
                     // Load mateirals
                     if incoming_command[0] == "load_toml" {
                         println!("Loading TOML {}...", incoming_command[1]);
@@ -159,9 +161,16 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                                         material_editor.material_id
                                     );
                                     material_editor.material_id = material_id;
-                                    
-                                    if let Some(mat) = gpu_interface.material_manager.get_material(material_editor.material_id) {
-                                        outgoing_command = format!("toml_loaded ##delimiter## {} ##delimiter## {}", mat.world_offset_body(), mat.frag_color_body());
+
+                                    if let Some(mat) = gpu_interface
+                                        .material_manager
+                                        .get_material(material_editor.material_id)
+                                    {
+                                        outgoing_command = format!(
+                                            "toml_loaded ##delimiter## {} ##delimiter## {}",
+                                            mat.world_offset_body(),
+                                            mat.frag_color_body()
+                                        );
                                     }
                                 } else {
                                     println!("  Failed to load");
@@ -171,6 +180,10 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
                                 println!("  Failed to load.  Error: {e}");
                             }
                         }
+                    } else if incoming_command[0] == "compile" {
+                        println!("Module - Compile material!");
+                    } else {
+                        //    println!("Module - Unknown Command {}", incoming_command[0]);
                     }
                 }
 
@@ -179,7 +192,8 @@ fn update_shared_mem(gpu_interface: &mut GpuInterface, material_editor: &mut Mat
 
                 // Write outgoing commands
                 if !outgoing_command.is_empty() {
-                    shared_mem[1..outgoing_command.len() + 1].copy_from_slice(outgoing_command.as_bytes());
+                    shared_mem[1..outgoing_command.len() + 1]
+                        .copy_from_slice(outgoing_command.as_bytes());
                 }
 
                 read_barrier.store(true, Ordering::Release);
