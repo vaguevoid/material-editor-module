@@ -1,6 +1,7 @@
 // #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![warn(static_mut_refs)]
 #![allow(rustdoc::missing_crate_level_docs)]
+use core::f32;
 use std::{
     env,
     fs::{self, OpenOptions},
@@ -81,6 +82,8 @@ impl eframe::App for MaterialEditor {
         CentralPanel::default().show(ctx, |ui| {
             let available_rect = ctx.available_rect();
             let usable_width = ui.max_rect().width() - ui.spacing().item_spacing.x;
+            let usable_height = ui.max_rect().height() - ui.spacing().item_spacing.y;
+
             let text_height = 12_f32;
 
             ui.set_min_size(available_rect.size());
@@ -190,24 +193,45 @@ impl eframe::App for MaterialEditor {
                 });
 
             ui.add_space(text_height * 2.);
-            ui.label("World Offset");
-            ui.add_sized(
-                [usable_width, 150.],
-                TextEdit::multiline(&mut self.world_offset_text)
-                    .code_editor()
-                    .desired_rows(10)
-                    .font(egui::TextStyle::Monospace),
-            );
+            ui.horizontal(|ui| {
+                ui.button("Add Vec4");
+                ui.button("Add f32");
+                ui.button("Add Add Array");
+            });
 
+            // World Offset
+            ui.add_space(text_height * 2.);
+            ui.label("World Offset");
+            ScrollArea::vertical()
+                .id_salt("world_offset")
+                .max_width(usable_width)
+                .max_height(usable_height / 3.333)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.world_offset_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(25)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
+
+            // Fragment Color
             ui.add_space(text_height * 2.);
             ui.label("Fragment Color");
-            ui.add_sized(
-                [usable_width, 150.],
-                TextEdit::multiline(&mut self.frag_color_text)
-                    .code_editor()
-                    .desired_rows(10)
-                    .font(egui::TextStyle::Monospace),
-            );
+            ScrollArea::vertical()
+                .id_salt("fragment_color")
+                .max_width(usable_width)
+                .max_height(usable_height / 3.3333)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.frag_color_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(25)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
 
             ui.add_space(text_height);
             let compile_button = ui.button("Compile");
