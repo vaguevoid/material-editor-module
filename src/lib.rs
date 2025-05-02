@@ -27,9 +27,9 @@ use void_public::{
     *,
 };
 
-const CAMERA_ZOOM_SPEED: f32 = 2f32;
-const CAMERA_MOVE_SPEED: f32 = 200_f32;
-const MAX_ZOOM: f32 = 100f32;
+const CAMERA_ZOOM_SPEED: f32 = 2.;
+const CAMERA_MOVE_SPEED: f32 = 200.;
+const MAX_ZOOM: f32 = 100.;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let _ = std::fs::create_dir("./temp/");

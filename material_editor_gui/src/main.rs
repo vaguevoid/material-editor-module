@@ -11,15 +11,14 @@ use std::{
     },
 };
 
-use eframe::egui::{self, CentralPanel, TextEdit};
+use eframe::egui::{self, CentralPanel, ComboBox, Grid, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
-
-use serde::{Deserialize, Serialize, de::IntoDeserializer};
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 static MATERIAL_EDITOR_VERSION: u32 = 0;
-static USER_SETTINGS_PATH: &str = "./temp/settings.json";
+static USER_SETTINGS_PATH: &str = "./temp/user_settings.json";
 static MAX_TEXTURES: usize = 16;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
@@ -33,6 +32,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 });
 
 static mut GLOBAL_CONFIG: Option<UserSettings> = None;
+#[allow(static_mut_refs)]
 fn get_config() -> &'static mut UserSettings {
     unsafe { GLOBAL_CONFIG.as_mut().unwrap() }
 }
@@ -152,27 +152,42 @@ impl eframe::App for MaterialEditor {
                 }
             });
 
-            // Uniforms
+            // Uniforms and textures
             ui.add_space(text_height * 2.);
-            ui.label("Uniforms");
-            ui.add_sized(
-                [usable_width, 25.],
-                TextEdit::multiline(&mut self.uniforms_text)
-                    .code_editor()
-                    .desired_rows(5)
-                    .font(egui::TextStyle::Monospace),
-            );
+            Grid::new("uniform_texture")
+                .num_columns(2)
+                .max_col_width(usable_width)
+                .show(ui, |ui| {
+                    ui.label("Uniforms:");
+                    ui.label("Textures:");
+                    ui.end_row();
 
-            // Textures
-            ui.add_space(text_height * 2.);
-            ui.label("Textures");
-            ui.add_sized(
-                [usable_width, 25.],
-                TextEdit::multiline(&mut self.textures_text)
-                    .code_editor()
-                    .desired_rows(5)
-                    .font(egui::TextStyle::Monospace),
-            );
+                    ScrollArea::vertical()
+                        .id_salt("uniform_scroll")
+                        .max_width(usable_width)
+                        .max_height(75.)
+                        .show(ui, |ui| {
+                            ui.add(
+                                TextEdit::multiline(&mut self.uniforms_text)
+                                    .code_editor()
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_rows(10),
+                            );
+                        });
+
+                    ScrollArea::vertical()
+                        .id_salt("texture_scroll")
+                        .max_width(usable_width)
+                        .max_height(75.)
+                        .show(ui, |ui| {
+                            ui.add(
+                                TextEdit::multiline(&mut self.textures_text)
+                                    .code_editor()
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_rows(10),
+                            );
+                        });
+                });
 
             ui.add_space(text_height * 2.);
             ui.label("World Offset");
@@ -206,27 +221,35 @@ impl eframe::App for MaterialEditor {
                 );
             }
 
-            for i in 0..16 {
-                let file_button = ui.button(format!("Texture[{i}]"));
-                if file_button.clicked() {
-                    save_config = true;
-                    let file_picker = rfd::FileDialog::new().set_directory(
-                        &get_config().texture_directories[i].canonicalize().unwrap(),
-                    );
-                    if let Some(file_path) = file_picker.pick_file() {
-                        cmd_string = format!("load_texture {}",  file_path.to_str().unwrap());
-                        if let Some(file_name) = file_path.file_name() {
-                            self.textures[i] = file_name.to_string_lossy().to_owned().to_string();
-                        }
-                        get_config().texture_directories[i] = file_path
-                            .parent()
-                            .unwrap_or(PathBuf::from("./").as_path())
-                            .to_path_buf();
+            ui.add_space(text_height * 2.);
 
+            ui.horizontal(|ui| {
+                ui.label("Textures");
+                ComboBox::from_id_salt("Textures").show_ui(ui, |ui| {
+                    for i in 0..16 {
+                        let file_button = ui.button(format!("Texture[{i}]"));
+                        if file_button.clicked() {
+                            save_config = true;
+                            let file_picker = rfd::FileDialog::new().set_directory(
+                                &get_config().texture_directories[i].canonicalize().unwrap(),
+                            );
+                            if let Some(file_path) = file_picker.pick_file() {
+                                cmd_string =
+                                    format!("load_texture {}", file_path.to_str().unwrap());
+                                if let Some(file_name) = file_path.file_name() {
+                                    self.textures[i] =
+                                        file_name.to_string_lossy().to_owned().to_string();
+                                }
+                                get_config().texture_directories[i] = file_path
+                                    .parent()
+                                    .unwrap_or(PathBuf::from("./").as_path())
+                                    .to_path_buf();
+                            }
+                        }
+                        ui.text_edit_singleline(&mut self.textures[i]);
                     }
-                }
-                ui.text_edit_singleline(&mut self.textures[i]);
-            }
+                });
+            });
         });
 
         unsafe {
