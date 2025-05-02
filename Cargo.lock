@@ -2962,6 +2962,8 @@ dependencies = [
  "memmap2 0.9.5",
  "once_cell",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

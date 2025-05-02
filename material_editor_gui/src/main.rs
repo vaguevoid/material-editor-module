@@ -1,8 +1,10 @@
 // #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![warn(static_mut_refs)]
 #![allow(rustdoc::missing_crate_level_docs)]
 use std::{
-    env, fs,
-    path::PathBuf,
+    env,
+    fs::{self, OpenOptions},
+    path::{Path, PathBuf},
     sync::{
         Mutex,
         atomic::{AtomicBool, Ordering},
@@ -12,22 +14,41 @@ use std::{
 use eframe::egui::{self, CentralPanel, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
-use std::fs::OpenOptions;
+
+use serde::{Deserialize, Serialize, de::IntoDeserializer};
+use serde_json;
+
+static MATERIAL_EDITOR_VERSION: u32 = 0;
+static USER_SETTINGS_PATH: &str = "./temp/settings.json";
+static MAX_TEXTURES: usize = 16;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("shared_memory.bin")
+        .open("./temp/shared_memory.bin")
         .expect("Failed to open file");
 
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
 });
 
+static mut GLOBAL_CONFIG: Option<UserSettings> = None;
+fn get_config() -> &'static mut UserSettings {
+    unsafe { GLOBAL_CONFIG.as_mut().unwrap() }
+}
+
+// User Settings
+#[derive(Serialize, Deserialize, Debug)]
+struct UserSettings {
+    version: u32,
+    shader_directory: PathBuf,
+    texture_directories: [PathBuf; MAX_TEXTURES],
+}
+
 struct MaterialEditor {
     shader_path: PathBuf,
 
-    textures: [String; 16],
+    textures: [String; MAX_TEXTURES],
 
     textures_text: String,
     uniforms_text: String,
@@ -55,6 +76,7 @@ impl Default for MaterialEditor {
 impl eframe::App for MaterialEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut cmd_string = String::new();
+        let mut save_config = false;
 
         CentralPanel::default().show(ctx, |ui| {
             let available_rect = ctx.available_rect();
@@ -66,8 +88,17 @@ impl eframe::App for MaterialEditor {
             ui.horizontal(|ui| {
                 let file_button = ui.button("File: ");
                 if file_button.clicked() {
-                    if let Some(file_path) = rfd::FileDialog::new().pick_file() {
+                    let file_picker = rfd::FileDialog::new()
+                        .set_directory(&get_config().shader_directory.canonicalize().unwrap());
+                    if let Some(file_path) = file_picker.pick_file() {
                         self.shader_path = file_path;
+                        get_config().shader_directory = self
+                            .shader_path
+                            .parent()
+                            .unwrap_or(PathBuf::from("./").as_path())
+                            .to_path_buf();
+                        save_config = true;
+
                         if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
                             let key = "[uniform_types]";
                             if let Some(snippet_key_idx) = material_toml.find(key) {
@@ -178,9 +209,20 @@ impl eframe::App for MaterialEditor {
             for i in 0..16 {
                 let file_button = ui.button(format!("Texture[{i}]"));
                 if file_button.clicked() {
-                    if let Some(file_path) = rfd::FileDialog::new().pick_file() {
-                        self.textures[i] = file_path.to_str().unwrap_or("<Error>").to_string();
-                        cmd_string = format!("load_texture {}", self.textures[i]);
+                    save_config = true;
+                    let file_picker = rfd::FileDialog::new().set_directory(
+                        &get_config().texture_directories[i].canonicalize().unwrap(),
+                    );
+                    if let Some(file_path) = file_picker.pick_file() {
+                        cmd_string = format!("load_texture {}",  file_path.to_str().unwrap());
+                        if let Some(file_name) = file_path.file_name() {
+                            self.textures[i] = file_name.to_string_lossy().to_owned().to_string();
+                        }
+                        get_config().texture_directories[i] = file_path
+                            .parent()
+                            .unwrap_or(PathBuf::from("./").as_path())
+                            .to_path_buf();
+
                     }
                 }
                 ui.text_edit_singleline(&mut self.textures[i]);
@@ -218,6 +260,13 @@ impl eframe::App for MaterialEditor {
                 shared_mem.flush().expect("Failed to flush");
             }
         }
+
+        if save_config {
+            let _ = fs::write(
+                USER_SETTINGS_PATH,
+                serde_json::to_string_pretty(&get_config()).unwrap(),
+            );
+        }
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, _raw_input: &mut egui::RawInput) {
@@ -227,6 +276,30 @@ impl eframe::App for MaterialEditor {
 
 fn main() -> eframe::Result {
     env_logger::init();
+
+    // Config file
+    if !Path::new(USER_SETTINGS_PATH).exists() {
+        let default_config = UserSettings {
+            version: MATERIAL_EDITOR_VERSION,
+            shader_directory: "./".into(),
+            texture_directories: std::array::from_fn(|_| "./".into()),
+        };
+        println!("WRITING CONFIG!");
+        let _ = fs::write(
+            USER_SETTINGS_PATH,
+            serde_json::to_string_pretty(&default_config).unwrap(),
+        );
+    }
+
+    let settings = fs::read_to_string(USER_SETTINGS_PATH).expect("Failed to read config file");
+    let user_settings: UserSettings =
+        serde_json::from_str(&settings).expect("Failed to parse config file");
+
+    unsafe {
+        GLOBAL_CONFIG = Some(user_settings);
+    }
+    println!("TEXTURE DIR = {:?}", get_config().texture_directories[0]);
+    // Window and Gui
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([640.0, 800.0])

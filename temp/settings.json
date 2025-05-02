@@ -1,0 +1,22 @@
+{
+  "version": 0,
+  "shader_directory": "C:\\projects\\void\\engine\\runtime\\game_asset\\shaders\\toml_shaders\\standard",
+  "texture_directories": [
+    "C:\\projects\\void\\engine\\target\\debug\\assets\\textures",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./",
+    "./"
+  ]
+}

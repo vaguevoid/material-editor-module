@@ -32,12 +32,13 @@ const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    let _ = std::fs::create_dir("./temp/");
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
-        .open("shared_memory.bin")
+        .open("./temp/shared_memory.bin")
         .expect("Failed to open file");
 
     file.set_len(131072).expect("Failed to set file size");
@@ -204,12 +205,6 @@ fn update_shared_mem(
                                 );
                             }
                             println!("Module - Material Compiled");
-                            // Update gui with material snippets
-                            /*  outgoing_command = format!(
-                                "toml_loaded ##delimiter## {} ##delimiter## {}",
-                                mat.world_offset_body(),
-                                mat.frag_color_body()
-                            );*/
                         }
                     } else {
                         //    println!("Module - Unknown Command {}", incoming_command[0]);
@@ -277,7 +272,7 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Us
 
     if let Some(mut binding) = query_player_input.get_mut(0) {
         let player_input = binding.unpack();
-    //input_dir = input_dir.normalize_or_zero();
+        //input_dir = input_dir.normalize_or_zero();
 
         player_input.zoom_delta = input_state.mouse.scroll_delta.y;
         player_input.camera_movement_input = cam_input_dir;
