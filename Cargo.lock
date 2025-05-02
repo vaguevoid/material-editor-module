@@ -2962,6 +2962,8 @@ dependencies = [
  "memmap2 0.9.5",
  "once_cell",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2974,7 +2976,6 @@ dependencies = [
  "game_module_macro",
  "gpu_web",
  "indoc",
- "material_editor_gui",
  "memmap2 0.9.5",
  "once_cell",
  "rand 0.9.1",

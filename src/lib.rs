@@ -1,15 +1,3 @@
-use game_asset::{
-    ecs_module::GpuInterface,
-    resource_managers::{
-        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
-    },
-};
-use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
-use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
-
-use once_cell::sync::Lazy;
-
-use memmap2::MmapMut;
 use std::{
     ffi::CString,
     fs::{self, OpenOptions},
@@ -20,6 +8,18 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+use game_asset::{
+    ecs_module::GpuInterface,
+    resource_managers::{
+        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+    },
+};
+use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
+use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
+use memmap2::MmapMut;
+use once_cell::sync::Lazy;
+
 use void_public::{
     event::{graphics::NewTexture, input::KeyCode},
     graphics::{MaterialId, MaterialParameters, TextureId, TextureRender},
@@ -27,58 +27,32 @@ use void_public::{
     *,
 };
 
-const PLAYER_SPEED: f32 = 1_f32;
-
 const CAMERA_ZOOM_SPEED: f32 = 2f32;
 const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
 
+static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    let _ = std::fs::create_dir("./temp/");
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./temp/shared_memory.bin")
+        .expect("Failed to open file");
+
+    file.set_len(131072).expect("Failed to set file size");
+
+    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
+});
+
 #[repr(C)]
 #[derive(Component, Default, serde::Deserialize)]
-struct PlayerInput {
-    #[serde(default)]
-    pub movement_input: Vec2,
-    #[serde(default)]
+struct UserInput {
+    #[serde(skip_deserializing)]
     pub zoom_delta: f32,
-    #[serde(default)]
-    pub is_firing: bool,
-    #[serde(default)]
-    pub is_free_camera: bool,
-    #[serde(default)]
+    #[serde(skip_deserializing)]
     pub camera_movement_input: Vec2,
-    #[serde(default)]
-    pub active_player: u32,
-}
-
-#[repr(C)]
-#[derive(Component, Default, serde::Deserialize)]
-struct Player {
-    #[serde(default)]
-    look_dir: Vec2,
-    #[serde(default)]
-    is_dead: bool,
-    #[serde(default)]
-    is_started: bool,
-    #[serde(default)]
-    time_alive: f32,
-}
-
-#[repr(C)]
-#[derive(Component, Default, serde::Deserialize)]
-struct Shield {
-    #[serde(default)]
-    rotation_speed: f32,
-}
-
-#[repr(C)]
-#[derive(Component, Debug, Default, serde::Deserialize)]
-struct Velocity(Vec2);
-
-#[repr(C)]
-#[derive(Component, Debug, Default, serde::Deserialize)]
-struct Timer {
-    #[serde(default)]
-    pub time_remaining: f32,
 }
 
 #[derive(ResourceWithoutSerialize)]
@@ -93,39 +67,28 @@ impl Default for MaterialEditor {
         }
     }
 }
-static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("shared_memory.bin")
-        .expect("Failed to open file");
-
-    file.set_len(131072).expect("Failed to set file size");
-
-    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
-});
 
 #[system_once]
-fn init_shared_mem() {
-    let material_editor_gui = "./target/debug/material_editor_gui.exe";
-    let _ = Command::new(material_editor_gui)
-        .spawn()
-        .expect("Failed to start Project B");
+fn initialize_module() {
+    println!("Initializing Material Editor module.");
 
-    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-        shared_mem[0..].fill(b'\0');
-    }
-}
-
-#[system_once]
-fn spawn_scene() {
     match std::env::current_dir() {
         Ok(path) => println!("The current working directory is: {}", path.display()),
         Err(e) => eprintln!("Error getting current directory: {}", e),
     }
 
+    // Init shared mem
+    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+        shared_mem[0..].fill(b'\0');
+    }
+
+    // Open the gui
+    let material_editor_gui = "./target/debug/material_editor_gui.exe";
+    let _ = Command::new(material_editor_gui)
+        .spawn()
+        .expect("Failed to start Project B");
+
+    // Load scene
     let scene_str = fs::read_to_string(Path::new("../engine/target/debug/assets/scene.json"));
     assert!(scene_str.is_ok());
 
@@ -134,8 +97,12 @@ fn spawn_scene() {
     let c_str = c_string.as_c_str();
     Engine::load_scene(c_str);
 
-    let a = PlayerInput::default();
-    Engine::spawn(bundle!(&a));
+    // User input
+    let user_input = UserInput {
+        zoom_delta: 0.,
+        camera_movement_input: Vec2::new(0., 0.),
+    };
+    Engine::spawn(bundle!(&user_input));
 }
 
 #[system]
@@ -238,12 +205,6 @@ fn update_shared_mem(
                                 );
                             }
                             println!("Module - Material Compiled");
-                            // Update gui with material snippets
-                            /*  outgoing_command = format!(
-                                "toml_loaded ##delimiter## {} ##delimiter## {}",
-                                mat.world_offset_body(),
-                                mat.frag_color_body()
-                            );*/
                         }
                     } else {
                         //    println!("Module - Unknown Command {}", incoming_command[0]);
@@ -266,7 +227,7 @@ fn update_shared_mem(
         }
     }
 
-    texture_query.for_each(|(sprite, parameters)| {
+    texture_query.for_each(|(_, parameters)| {
         if new_material_id.is_some() {
             println!("Setting new material id {}", new_material_id.unwrap());
             parameters.material_id = new_material_id.unwrap();
@@ -279,10 +240,10 @@ fn update_shared_mem(
 }
 
 #[system]
-fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
+fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut UserInput>) {
     let mut input_dir = Vec2::ZERO;
     let mut cam_input_dir = Vec2::ZERO;
-    // println!("CAPTURING INPUT!");
+
     if key_is_down(input_state, KeyCode::KeyA) {
         input_dir.x -= 1.0;
     }
@@ -309,48 +270,18 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
         cam_input_dir.y -= 1.0;
     }
 
-    //println!("{} ", query_player_input.len());
-
     if let Some(mut binding) = query_player_input.get_mut(0) {
         let player_input = binding.unpack();
-        input_dir = input_dir.normalize_or_zero();
-        player_input.movement_input = input_dir;
-
-        if input_state.mouse.buttons.0[0].just_pressed() {
-            player_input.active_player = 0;
-        }
-
-        if key_just_pressed(input_state, KeyCode::Digit1) {
-            player_input.active_player = 0;
-        } else if key_just_pressed(input_state, KeyCode::Digit2) {
-            player_input.active_player = 1;
-        } else if key_just_pressed(input_state, KeyCode::Digit3) {
-            player_input.active_player = 2;
-        } else if key_just_pressed(input_state, KeyCode::Digit4) {
-            player_input.active_player = 3;
-        }
-
-        if key_just_pressed(input_state, KeyCode::Space) {
-            player_input.is_firing = true;
-        }
+        //input_dir = input_dir.normalize_or_zero();
 
         player_input.zoom_delta = input_state.mouse.scroll_delta.y;
-
-        if key_just_pressed(input_state, KeyCode::Backquote) {
-            player_input.is_free_camera = !player_input.is_free_camera;
-        }
-
-        // println!(" {} {}", input_dir, cam_input_dir);
-
         player_input.camera_movement_input = cam_input_dir;
     }
 }
 
 #[system]
 fn process_input(
-    // custom_resource: &CustomResource,
-    mut query_player_input: Query<&mut PlayerInput>,
-    mut query_player: Query<(&EntityId, &mut Transform, &LocalToWorld, &mut Player)>,
+    mut query_player_input: Query<&mut UserInput>,
     mut query_cam: Query<(&mut Transform, &mut Camera)>,
     frame_constants: &FrameConstants,
 ) {
@@ -358,53 +289,21 @@ fn process_input(
         return;
     };
 
-    //  println!("PROCESS INPUY");
     let player_input = binding.unpack();
-    let movement_input = player_input.movement_input;
     let cam_input = player_input.camera_movement_input;
 
-    if let Some(mut binding) = query_cam.get_mut(player_input.active_player as usize) {
-        //  println!("  PROCESS INPUt");
-
+    if let Some(mut binding) = query_cam.get_mut(0) {
         let (cam_transform, cam) = binding.unpack();
         cam.orthographic_size +=
             player_input.zoom_delta * frame_constants.delta_time * CAMERA_ZOOM_SPEED;
         cam.orthographic_size = cam.orthographic_size.clamp(1f32, MAX_ZOOM);
 
-        {
-            //if player_input.is_free_camera {
-            let delta_cam_pos =
-                (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
-            cam_transform
-                .position
-                .set(cam_transform.position.get() + delta_cam_pos);
-        }
+        let delta_cam_pos =
+            (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
+        cam_transform
+            .position
+            .set(cam_transform.position.get() + delta_cam_pos);
     }
-
-    if let Some(mut binding) = query_player.get_mut(player_input.active_player as usize) {
-        println!("  PROCESS -----");
-
-        let (_player_entity, transform, _player_local_to_world, player_info) = binding.unpack();
-
-        if movement_input != Vec2::ZERO {
-            if !player_info.is_started {
-                player_info.time_alive = 0f32;
-            }
-            player_info.is_started = true;
-            player_info.look_dir = movement_input;
-        }
-
-        let delta_pos = movement_input * PLAYER_SPEED;
-        let new_local_pos =
-            Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
-        transform.position = linalg::Vec3::from_xyz(new_local_pos.x, new_local_pos.y, 0.);
-    }
-
-    player_input.is_firing = false;
-}
-
-fn key_just_pressed(input_state: &InputState, key_just_pressed: KeyCode) -> bool {
-    input_state.keys[key_just_pressed].just_pressed()
 }
 
 fn key_is_down(input_state: &InputState, key_code: KeyCode) -> bool {
