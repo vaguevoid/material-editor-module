@@ -1,15 +1,3 @@
-use game_asset::{
-    ecs_module::GpuInterface,
-    resource_managers::{
-        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
-    },
-};
-use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
-use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
-
-use once_cell::sync::Lazy;
-
-use memmap2::MmapMut;
 use std::{
     ffi::CString,
     fs::{self, OpenOptions},
@@ -20,6 +8,18 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+use game_asset::{
+    ecs_module::GpuInterface,
+    resource_managers::{
+        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+    },
+};
+use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
+use gpu_web::{GpuResource, gpu_managers::texture_manager::RenderTargetType};
+use memmap2::MmapMut;
+use once_cell::sync::Lazy;
+
 use void_public::{
     event::{graphics::NewTexture, input::KeyCode},
     graphics::{MaterialId, MaterialParameters, TextureId, TextureRender},
@@ -33,52 +33,29 @@ const CAMERA_ZOOM_SPEED: f32 = 2f32;
 const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
 
+static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("shared_memory.bin")
+        .expect("Failed to open file");
+
+    file.set_len(131072).expect("Failed to set file size");
+
+    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
+});
+
 #[repr(C)]
 #[derive(Component, Default, serde::Deserialize)]
 struct PlayerInput {
     #[serde(default)]
-    pub movement_input: Vec2,
-    #[serde(default)]
     pub zoom_delta: f32,
-    #[serde(default)]
-    pub is_firing: bool,
     #[serde(default)]
     pub is_free_camera: bool,
     #[serde(default)]
     pub camera_movement_input: Vec2,
-    #[serde(default)]
-    pub active_player: u32,
-}
-
-#[repr(C)]
-#[derive(Component, Default, serde::Deserialize)]
-struct Player {
-    #[serde(default)]
-    look_dir: Vec2,
-    #[serde(default)]
-    is_dead: bool,
-    #[serde(default)]
-    is_started: bool,
-    #[serde(default)]
-    time_alive: f32,
-}
-
-#[repr(C)]
-#[derive(Component, Default, serde::Deserialize)]
-struct Shield {
-    #[serde(default)]
-    rotation_speed: f32,
-}
-
-#[repr(C)]
-#[derive(Component, Debug, Default, serde::Deserialize)]
-struct Velocity(Vec2);
-
-#[repr(C)]
-#[derive(Component, Debug, Default, serde::Deserialize)]
-struct Timer {
-    #[serde(default)]
-    pub time_remaining: f32,
 }
 
 #[derive(ResourceWithoutSerialize)]
@@ -93,19 +70,6 @@ impl Default for MaterialEditor {
         }
     }
 }
-static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("shared_memory.bin")
-        .expect("Failed to open file");
-
-    file.set_len(131072).expect("Failed to set file size");
-
-    Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
-});
 
 #[system_once]
 fn init_shared_mem() {
@@ -314,25 +278,6 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
     if let Some(mut binding) = query_player_input.get_mut(0) {
         let player_input = binding.unpack();
         input_dir = input_dir.normalize_or_zero();
-        player_input.movement_input = input_dir;
-
-        if input_state.mouse.buttons.0[0].just_pressed() {
-            player_input.active_player = 0;
-        }
-
-        if key_just_pressed(input_state, KeyCode::Digit1) {
-            player_input.active_player = 0;
-        } else if key_just_pressed(input_state, KeyCode::Digit2) {
-            player_input.active_player = 1;
-        } else if key_just_pressed(input_state, KeyCode::Digit3) {
-            player_input.active_player = 2;
-        } else if key_just_pressed(input_state, KeyCode::Digit4) {
-            player_input.active_player = 3;
-        }
-
-        if key_just_pressed(input_state, KeyCode::Space) {
-            player_input.is_firing = true;
-        }
 
         player_input.zoom_delta = input_state.mouse.scroll_delta.y;
 
@@ -348,9 +293,7 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
 
 #[system]
 fn process_input(
-    // custom_resource: &CustomResource,
     mut query_player_input: Query<&mut PlayerInput>,
-    mut query_player: Query<(&EntityId, &mut Transform, &LocalToWorld, &mut Player)>,
     mut query_cam: Query<(&mut Transform, &mut Camera)>,
     frame_constants: &FrameConstants,
 ) {
@@ -358,13 +301,10 @@ fn process_input(
         return;
     };
 
-    //  println!("PROCESS INPUY");
     let player_input = binding.unpack();
-    let movement_input = player_input.movement_input;
     let cam_input = player_input.camera_movement_input;
 
-    if let Some(mut binding) = query_cam.get_mut(player_input.active_player as usize) {
-        //  println!("  PROCESS INPUt");
+    if let Some(mut binding) = query_cam.get_mut(0) {
 
         let (cam_transform, cam) = binding.unpack();
         cam.orthographic_size +=
@@ -380,27 +320,6 @@ fn process_input(
                 .set(cam_transform.position.get() + delta_cam_pos);
         }
     }
-
-    if let Some(mut binding) = query_player.get_mut(player_input.active_player as usize) {
-        println!("  PROCESS -----");
-
-        let (_player_entity, transform, _player_local_to_world, player_info) = binding.unpack();
-
-        if movement_input != Vec2::ZERO {
-            if !player_info.is_started {
-                player_info.time_alive = 0f32;
-            }
-            player_info.is_started = true;
-            player_info.look_dir = movement_input;
-        }
-
-        let delta_pos = movement_input * PLAYER_SPEED;
-        let new_local_pos =
-            Vec2::new(transform.position.get().x, transform.position.get().y) + delta_pos;
-        transform.position = linalg::Vec3::from_xyz(new_local_pos.x, new_local_pos.y, 0.);
-    }
-
-    player_input.is_firing = false;
 }
 
 fn key_just_pressed(input_state: &InputState, key_just_pressed: KeyCode) -> bool {
