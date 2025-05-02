@@ -27,8 +27,6 @@ use void_public::{
     *,
 };
 
-const PLAYER_SPEED: f32 = 1_f32;
-
 const CAMERA_ZOOM_SPEED: f32 = 2f32;
 const CAMERA_MOVE_SPEED: f32 = 200_f32;
 const MAX_ZOOM: f32 = 100f32;
@@ -49,12 +47,10 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 
 #[repr(C)]
 #[derive(Component, Default, serde::Deserialize)]
-struct PlayerInput {
-    #[serde(default)]
+struct UserInput {
+    #[serde(skip_deserializing)]
     pub zoom_delta: f32,
-    #[serde(default)]
-    pub is_free_camera: bool,
-    #[serde(default)]
+    #[serde(skip_deserializing)]
     pub camera_movement_input: Vec2,
 }
 
@@ -72,24 +68,26 @@ impl Default for MaterialEditor {
 }
 
 #[system_once]
-fn init_shared_mem() {
-    let material_editor_gui = "./target/debug/material_editor_gui.exe";
-    let _ = Command::new(material_editor_gui)
-        .spawn()
-        .expect("Failed to start Project B");
+fn initialize_module() {
+    println!("Initializing Material Editor module.");
 
-    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-        shared_mem[0..].fill(b'\0');
-    }
-}
-
-#[system_once]
-fn spawn_scene() {
     match std::env::current_dir() {
         Ok(path) => println!("The current working directory is: {}", path.display()),
         Err(e) => eprintln!("Error getting current directory: {}", e),
     }
 
+    // Init shared mem
+    if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+        shared_mem[0..].fill(b'\0');
+    }
+
+    // Open the gui
+    let material_editor_gui = "./target/debug/material_editor_gui.exe";
+    let _ = Command::new(material_editor_gui)
+        .spawn()
+        .expect("Failed to start Project B");
+
+    // Load scene
     let scene_str = fs::read_to_string(Path::new("../engine/target/debug/assets/scene.json"));
     assert!(scene_str.is_ok());
 
@@ -98,8 +96,12 @@ fn spawn_scene() {
     let c_str = c_string.as_c_str();
     Engine::load_scene(c_str);
 
-    let a = PlayerInput::default();
-    Engine::spawn(bundle!(&a));
+    // User input
+    let user_input = UserInput {
+        zoom_delta: 0.,
+        camera_movement_input: Vec2::new(0., 0.),
+    };
+    Engine::spawn(bundle!(&user_input));
 }
 
 #[system]
@@ -230,7 +232,7 @@ fn update_shared_mem(
         }
     }
 
-    texture_query.for_each(|(sprite, parameters)| {
+    texture_query.for_each(|(_, parameters)| {
         if new_material_id.is_some() {
             println!("Setting new material id {}", new_material_id.unwrap());
             parameters.material_id = new_material_id.unwrap();
@@ -243,10 +245,10 @@ fn update_shared_mem(
 }
 
 #[system]
-fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut PlayerInput>) {
+fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut UserInput>) {
     let mut input_dir = Vec2::ZERO;
     let mut cam_input_dir = Vec2::ZERO;
-    // println!("CAPTURING INPUT!");
+
     if key_is_down(input_state, KeyCode::KeyA) {
         input_dir.x -= 1.0;
     }
@@ -273,27 +275,18 @@ fn capture_input(input_state: &InputState, mut query_player_input: Query<&mut Pl
         cam_input_dir.y -= 1.0;
     }
 
-    //println!("{} ", query_player_input.len());
-
     if let Some(mut binding) = query_player_input.get_mut(0) {
         let player_input = binding.unpack();
-        input_dir = input_dir.normalize_or_zero();
+    //input_dir = input_dir.normalize_or_zero();
 
         player_input.zoom_delta = input_state.mouse.scroll_delta.y;
-
-        if key_just_pressed(input_state, KeyCode::Backquote) {
-            player_input.is_free_camera = !player_input.is_free_camera;
-        }
-
-        // println!(" {} {}", input_dir, cam_input_dir);
-
         player_input.camera_movement_input = cam_input_dir;
     }
 }
 
 #[system]
 fn process_input(
-    mut query_player_input: Query<&mut PlayerInput>,
+    mut query_player_input: Query<&mut UserInput>,
     mut query_cam: Query<(&mut Transform, &mut Camera)>,
     frame_constants: &FrameConstants,
 ) {
@@ -305,25 +298,17 @@ fn process_input(
     let cam_input = player_input.camera_movement_input;
 
     if let Some(mut binding) = query_cam.get_mut(0) {
-
         let (cam_transform, cam) = binding.unpack();
         cam.orthographic_size +=
             player_input.zoom_delta * frame_constants.delta_time * CAMERA_ZOOM_SPEED;
         cam.orthographic_size = cam.orthographic_size.clamp(1f32, MAX_ZOOM);
 
-        {
-            //if player_input.is_free_camera {
-            let delta_cam_pos =
-                (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
-            cam_transform
-                .position
-                .set(cam_transform.position.get() + delta_cam_pos);
-        }
+        let delta_cam_pos =
+            (cam_input * frame_constants.delta_time * CAMERA_MOVE_SPEED).extend(0.0);
+        cam_transform
+            .position
+            .set(cam_transform.position.get() + delta_cam_pos);
     }
-}
-
-fn key_just_pressed(input_state: &InputState, key_just_pressed: KeyCode) -> bool {
-    input_state.keys[key_just_pressed].just_pressed()
 }
 
 fn key_is_down(input_state: &InputState, key_code: KeyCode) -> bool {

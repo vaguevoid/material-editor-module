@@ -1,12 +1,6 @@
 {
   "entities": [
     {
-      "id": "input_capture",
-      "components": {
-        "transform_demo::PlayerInput": {}
-      }
-    },
-    {
       "id": "sprite",
       "components": {
         "void_public::Transform": {
