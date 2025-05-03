@@ -57,7 +57,64 @@ struct MaterialEditor {
     frag_color_text: String,
 }
 
-impl MaterialEditor {}
+impl MaterialEditor {
+    fn load_shader(&mut self, file_path: &PathBuf) {
+        self.shader_path = file_path.clone();
+        get_config().shader_directory = self
+            .shader_path
+            .parent()
+            .unwrap_or(PathBuf::from("./").as_path())
+            .to_path_buf();
+
+        if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
+            let key = "[uniform_types]";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet_start = snippet_key_idx + key.len();
+                let snippet = &material_toml[snippet_start..];
+                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+
+                println!("-------->>> {}", snippet[..snippet_end]
+                .trim_start_matches(|c| c == '\n' || c == '\r')
+                .to_string());
+                self.uniforms_text = snippet[..snippet_end]
+                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .to_string();
+            }
+
+            let key = "[texture_descs]";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet_start = snippet_key_idx + key.len();
+                let snippet = &material_toml[snippet_start..];
+                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+                self.textures_text = snippet[..snippet_end]
+                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .to_string();
+            }
+
+            let key = "get_world_offset";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet = &material_toml[snippet_key_idx..];
+
+                let start = snippet.find("\"\"\"").unwrap();
+                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                self.world_offset_text = snippet[start + 3..start + 3 + end]
+                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .to_string();
+            }
+
+            let key = "get_fragment_color";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet = &material_toml[snippet_key_idx..];
+
+                let start = snippet.find("\"\"\"").unwrap();
+                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                self.frag_color_text = snippet[start + 3..start + 3 + end]
+                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .to_string();
+            }
+        }
+    }
+}
 
 impl Default for MaterialEditor {
     fn default() -> Self {
@@ -89,70 +146,19 @@ impl eframe::App for MaterialEditor {
             ui.set_min_size(available_rect.size());
 
             ui.horizontal(|ui| {
+                // Load Shader
                 let file_button = ui.button("File:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
                         .set_directory(&get_config().shader_directory.canonicalize().unwrap());
                     if let Some(file_path) = file_picker.pick_file() {
-                        self.shader_path = file_path;
-                        get_config().shader_directory = self
-                            .shader_path
-                            .parent()
-                            .unwrap_or(PathBuf::from("./").as_path())
-                            .to_path_buf();
+                        self.load_shader(&file_path);
                         save_config = true;
-
-                        if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
-                            let key = "[uniform_types]";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet_start = snippet_key_idx + key.len();
-                                let snippet = &material_toml[snippet_start..];
-                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
-
-                                println!("-------->>> {}", snippet[..snippet_end]
-                                .trim_start_matches(|c| c == '\n' || c == '\r')
-                                .to_string());
-                                self.uniforms_text = snippet[..snippet_end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "[texture_descs]";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet_start = snippet_key_idx + key.len();
-                                let snippet = &material_toml[snippet_start..];
-                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
-                                self.textures_text = snippet[..snippet_end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "get_world_offset";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet = &material_toml[snippet_key_idx..];
-
-                                let start = snippet.find("\"\"\"").unwrap();
-                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
-                                self.world_offset_text = snippet[start + 3..start + 3 + end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "get_fragment_color";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet = &material_toml[snippet_key_idx..];
-
-                                let start = snippet.find("\"\"\"").unwrap();
-                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
-                                self.frag_color_text = snippet[start + 3..start + 3 + end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-                        }
                     }
                 }
                 ui.text_edit_singleline(&mut self.shader_path.to_str().unwrap());
 
+                // Save Shader
                 let save_button = ui.button("Save");
                 if save_button.clicked() {
                     println!("Save button clicked!");
@@ -225,7 +231,7 @@ impl eframe::App for MaterialEditor {
             ScrollArea::vertical()
                 .id_salt("world_offset")
                 .max_width(usable_width)
-                .max_height(usable_height / 3.333)
+                .max_height(usable_height / 5.)
                 .show(ui, |ui| {
                     ui.add(
                         TextEdit::multiline(&mut self.world_offset_text)
@@ -242,7 +248,7 @@ impl eframe::App for MaterialEditor {
             ScrollArea::vertical()
                 .id_salt("fragment_color")
                 .max_width(usable_width)
-                .max_height(usable_height / 3.3333)
+                .max_height(usable_height / 5.)
                 .show(ui, |ui| {
                     ui.add(
                         TextEdit::multiline(&mut self.frag_color_text)
