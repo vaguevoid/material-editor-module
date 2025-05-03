@@ -34,7 +34,7 @@ const MAX_ZOOM: f32 = 100.;
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
     println!("Opening shared file...");
 
-    match std::env::current_dir() { 
+    match std::env::current_dir() {
         Ok(path) => println!("  The current working directory is: {}", path.display()),
         Err(e) => eprintln!("   Error getting current directory: {}", e),
     }
@@ -77,6 +77,13 @@ impl Default for MaterialEditor {
 fn initialize_module() {
     println!("Initializing Material Editor module.");
 
+    #[cfg(target_os = "macos")]
+    if !Path::new("./target/debug/").exists() {
+        let exe_path = env::current_exe().expect("Failed to get executable path");
+        let app_dir = exe_path.parent().expect("Failed to get parent directory");
+        env::set_current_dir(app_dir).expect("Failed to set current directory");
+    }
+
     // Init shared mem
     if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
         shared_mem[0..].fill(b'\0');
@@ -102,7 +109,7 @@ fn initialize_module() {
             "./material_editor_gui"
         }
     };
-   /* if !Path::new("./target/debug/").exists() {
+    /* if !Path::new("./target/debug/").exists() {
         // "Run and Debug" on Mac automatically spawns a material_editor_gui process, so skip manually spawning one from the debugger
         let _ = Command::new("./material_editor_gui")
             .spawn()
@@ -110,8 +117,8 @@ fn initialize_module() {
     }*/
 
     let _ = Command::new(material_editor_gui)
-    .spawn()
-    .expect("Failed to start Material Editor Gui");
+        .spawn()
+        .expect("Failed to start Material Editor Gui");
 
     // Load scene
     let scene_path = "../engine/target/debug/assets/scene.json";
