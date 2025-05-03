@@ -1,6 +1,7 @@
 // #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![warn(static_mut_refs)]
 #![allow(rustdoc::missing_crate_level_docs)]
+use core::f32;
 use std::{
     env,
     fs::{self, OpenOptions},
@@ -11,15 +12,14 @@ use std::{
     },
 };
 
-use eframe::egui::{self, CentralPanel, TextEdit};
+use eframe::egui::{self, CentralPanel, ComboBox, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
-
-use serde::{Deserialize, Serialize, de::IntoDeserializer};
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 static MATERIAL_EDITOR_VERSION: u32 = 0;
-static USER_SETTINGS_PATH: &str = "./temp/settings.json";
+static USER_SETTINGS_PATH: &str = "./temp/user_settings.json";
 static MAX_TEXTURES: usize = 16;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
@@ -33,6 +33,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 });
 
 static mut GLOBAL_CONFIG: Option<UserSettings> = None;
+#[allow(static_mut_refs)]
 fn get_config() -> &'static mut UserSettings {
     unsafe { GLOBAL_CONFIG.as_mut().unwrap() }
 }
@@ -56,7 +57,67 @@ struct MaterialEditor {
     frag_color_text: String,
 }
 
-impl MaterialEditor {}
+impl MaterialEditor {
+    fn load_shader(&mut self, file_path: &PathBuf) {
+        self.shader_path = file_path.clone();
+        get_config().shader_directory = self
+            .shader_path
+            .parent()
+            .unwrap_or(PathBuf::from("./").as_path())
+            .to_path_buf();
+
+        if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
+            let key = "[uniform_types]";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet_start = snippet_key_idx + key.len();
+                let snippet = &material_toml[snippet_start..];
+                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+
+                println!(
+                    "-------->>> {}",
+                    snippet[..snippet_end]
+                        .trim_start_matches(|c| c == '\n' || c == '\r')
+                        .to_string()
+                );
+                self.uniforms_text = snippet[..snippet_end]
+                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .to_string();
+            }
+
+            let key = "[texture_descs]";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet_start = snippet_key_idx + key.len();
+                let snippet = &material_toml[snippet_start..];
+                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+                self.textures_text = snippet[..snippet_end].trim_start().trim_end().to_string();
+            }
+
+            let key = "get_world_offset";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet = &material_toml[snippet_key_idx..];
+
+                let start = snippet.find("\"\"\"").unwrap();
+                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                self.world_offset_text = snippet[start + 3..start + 3 + end]
+                    .trim_start()
+                    .trim_end()
+                    .to_string();
+            }
+
+            let key = "get_fragment_color";
+            if let Some(snippet_key_idx) = material_toml.find(key) {
+                let snippet = &material_toml[snippet_key_idx..];
+
+                let start = snippet.find("\"\"\"").unwrap();
+                let end = snippet[start + 3..].find("\"\"\"").unwrap();
+                self.frag_color_text = snippet[start + 3..start + 3 + end]
+                    .trim_start()
+                    .trim_end()
+                    .to_string();
+            }
+        }
+    }
+}
 
 impl Default for MaterialEditor {
     fn default() -> Self {
@@ -81,152 +142,172 @@ impl eframe::App for MaterialEditor {
         CentralPanel::default().show(ctx, |ui| {
             let available_rect = ctx.available_rect();
             let usable_width = ui.max_rect().width() - ui.spacing().item_spacing.x;
+            let usable_height = ui.max_rect().height() - ui.spacing().item_spacing.y;
+
             let text_height = 12_f32;
 
             ui.set_min_size(available_rect.size());
 
             ui.horizontal(|ui| {
-                let file_button = ui.button("File: ");
+                // Load Shader
+                let file_button = ui.button("File:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
                         .set_directory(&get_config().shader_directory.canonicalize().unwrap());
                     if let Some(file_path) = file_picker.pick_file() {
-                        self.shader_path = file_path;
-                        get_config().shader_directory = self
-                            .shader_path
-                            .parent()
-                            .unwrap_or(PathBuf::from("./").as_path())
-                            .to_path_buf();
+                        self.load_shader(&file_path);
                         save_config = true;
-
-                        if let Ok(material_toml) = fs::read_to_string(&self.shader_path) {
-                            let key = "[uniform_types]";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet_start = snippet_key_idx + key.len();
-                                let snippet = &material_toml[snippet_start..];
-                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
-                                self.uniforms_text = snippet[..snippet_end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "[texture_descs]";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet_start = snippet_key_idx + key.len();
-                                let snippet = &material_toml[snippet_start..];
-                                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
-                                self.textures_text = snippet[..snippet_end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "get_world_offset";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet = &material_toml[snippet_key_idx..];
-
-                                let start = snippet.find("\"\"\"").unwrap();
-                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
-                                self.world_offset_text = snippet[start + 3..start + 3 + end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-
-                            let key = "get_fragment_color";
-                            if let Some(snippet_key_idx) = material_toml.find(key) {
-                                let snippet = &material_toml[snippet_key_idx..];
-
-                                let start = snippet.find("\"\"\"").unwrap();
-                                let end = snippet[start + 3..].find("\"\"\"").unwrap();
-                                self.frag_color_text = snippet[start + 3..start + 3 + end]
-                                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                                    .to_string();
-                            }
-                        }
                     }
                 }
                 ui.text_edit_singleline(&mut self.shader_path.to_str().unwrap());
 
+                // Save Shader
                 let save_button = ui.button("Save");
                 if save_button.clicked() {
                     println!("Save button clicked!");
                 }
             });
 
-            // Uniforms
+            // Uniforms and textures
             ui.add_space(text_height * 2.);
-            ui.label("Uniforms");
-            ui.add_sized(
-                [usable_width, 25.],
-                TextEdit::multiline(&mut self.uniforms_text)
-                    .code_editor()
-                    .desired_rows(5)
-                    .font(egui::TextStyle::Monospace),
-            );
+
+            ui.label("Uniforms:");
+            ScrollArea::vertical()
+                .id_salt("uniform_scroll")
+                .max_width(usable_width)
+                .max_height(75.)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.uniforms_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(10),
+                    );
+                });
+
+            // Convenience buttons for adding storage buffer variables
+            ui.add_space(text_height);
+            ui.horizontal(|ui| {
+                if ui.button("Add Vec4").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_vec4_var = { type = \"vec4f\", default = [1.0, 1.0, 1.0, 1.0] }";
+                }
+                if ui.button("Add f32").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_f32_var = { type = \"f32\", default = 1.2 }";
+                }
+                if ui.button("Add Add Array").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_array_var = { type = \"array<vec4f, 3>\", default = [\n\t[1.0, 0.8, 0.6, 1.0],\n\t[0.5, 0.7, 0.9, 1.0],\n\t[0.1, 0.2, 0.3, 1.0],\n] }";
+                }
+            });
 
             // Textures
             ui.add_space(text_height * 2.);
-            ui.label("Textures");
-            ui.add_sized(
-                [usable_width, 25.],
-                TextEdit::multiline(&mut self.textures_text)
-                    .code_editor()
-                    .desired_rows(5)
-                    .font(egui::TextStyle::Monospace),
-            );
+            ui.label("Textures:");
+            ScrollArea::vertical()
+                .id_salt("texture_scroll")
+                .max_width(usable_width)
+                .max_height(75.)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.textures_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(10),
+                    );
+                });
+                ui.add_space(text_height);
+                if ui.button("Add Texture").clicked() {
+                    if !self.textures_text.is_empty() {
+                        self.textures_text += "\n";
+                    }
+                    self.textures_text += "temp_texture = \"linear\"";
+                }
 
+            // World Offset
             ui.add_space(text_height * 2.);
             ui.label("World Offset");
-            ui.add_sized(
-                [usable_width, 150.],
-                TextEdit::multiline(&mut self.world_offset_text)
-                    .code_editor()
-                    .desired_rows(10)
-                    .font(egui::TextStyle::Monospace),
-            );
+            ScrollArea::vertical()
+                .id_salt("world_offset")
+                .max_width(usable_width)
+                .max_height(usable_height / 5.)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.world_offset_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(25)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
 
+            // Fragment Color
             ui.add_space(text_height * 2.);
             ui.label("Fragment Color");
-            ui.add_sized(
-                [usable_width, 150.],
-                TextEdit::multiline(&mut self.frag_color_text)
-                    .code_editor()
-                    .desired_rows(10)
-                    .font(egui::TextStyle::Monospace),
-            );
+            ScrollArea::vertical()
+                .id_salt("fragment_color")
+                .max_width(usable_width)
+                .max_height(usable_height / 5.)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.frag_color_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(25)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
 
             ui.add_space(text_height);
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
                 cmd_string = format!(
-                    "compile ##delimiter## {} ##delimiter## {} ##delimiter## {} ##delimiter## {}",
-                    self.uniforms_text,
-                    self.textures_text,
-                    self.world_offset_text,
-                    self.frag_color_text
+                    "compile ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n",
+                    self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.textures_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.frag_color_text.replace("\r", "\n").trim_start().trim_end(),
                 );
             }
 
-            for i in 0..16 {
-                let file_button = ui.button(format!("Texture[{i}]"));
-                if file_button.clicked() {
-                    save_config = true;
-                    let file_picker = rfd::FileDialog::new().set_directory(
-                        &get_config().texture_directories[i].canonicalize().unwrap(),
-                    );
-                    if let Some(file_path) = file_picker.pick_file() {
-                        cmd_string = format!("load_texture {}",  file_path.to_str().unwrap());
-                        if let Some(file_name) = file_path.file_name() {
-                            self.textures[i] = file_name.to_string_lossy().to_owned().to_string();
-                        }
-                        get_config().texture_directories[i] = file_path
-                            .parent()
-                            .unwrap_or(PathBuf::from("./").as_path())
-                            .to_path_buf();
+            ui.add_space(text_height * 2.);
 
+            ui.horizontal(|ui| {
+                ui.label("Textures");
+                ComboBox::from_id_salt("Textures").show_ui(ui, |ui| {
+                    for i in 0..16 {
+                        let file_button = ui.button(format!("Texture[{i}]"));
+                        if file_button.clicked() {
+                            save_config = true;
+                            let file_picker = rfd::FileDialog::new().set_directory(
+                                &get_config().texture_directories[i].canonicalize().unwrap(),
+                            );
+                            if let Some(file_path) = file_picker.pick_file() {
+                                cmd_string =
+                                    format!("load_texture {}", file_path.to_str().unwrap());
+                                if let Some(file_name) = file_path.file_name() {
+                                    self.textures[i] =
+                                        file_name.to_string_lossy().to_owned().to_string();
+                                }
+                                get_config().texture_directories[i] = file_path
+                                    .parent()
+                                    .unwrap_or(PathBuf::from("./").as_path())
+                                    .to_path_buf();
+                            }
+                        }
+                        ui.text_edit_singleline(&mut self.textures[i]);
                     }
-                }
-                ui.text_edit_singleline(&mut self.textures[i]);
-            }
+                });
+            });
         });
 
         unsafe {
