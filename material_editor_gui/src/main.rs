@@ -429,8 +429,8 @@ fn main() -> eframe::Result {
     // Window and Gui
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([640.0, 800.0])
-            .with_position([800.0, 100.0]),
+            .with_inner_size([640.0, 900.0])
+            .with_position([800.0, 25.0]),
         ..Default::default()
     };
 

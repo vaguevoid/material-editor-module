@@ -84,17 +84,29 @@ fn initialize_module() {
 
     // Open the gui
     #[cfg(not(target_os = "macos"))]
-    let material_editor_gui = "./target/debug/material_editor_gui.exe";
+    let material_editor_gui = {
+        if Path::new("./target/debug/material_editor_gui.exe").exists() {
+            "./target/debug/material_editor_gui.exe"
+        } else {
+            "./material_editor_gui.exe"
+        }  
+    };
 
     #[cfg(target_os = "macos")]
     let material_editor_gui = "./target/debug/material_editor_gui";
 
     let _ = Command::new(material_editor_gui)
         .spawn()
-        .expect("Failed to start Project B");
+        .expect("Failed to start Material Editor Gui");
 
     // Load scene
-    let scene_str = fs::read_to_string(Path::new("../engine/target/debug/assets/scene.json"));
+    let scene_path = "../engine/target/debug/assets/scene.json";
+    let scene_str = if Path::new(scene_path).exists() {
+        fs::read_to_string("../engine/target/debug/assets/scene.json")
+    } else {
+        fs::read_to_string("./assets/scene.json")
+    };
+    
     assert!(scene_str.is_ok());
 
     let scene_str = scene_str.unwrap();
