@@ -4,7 +4,8 @@
 use core::f32;
 use std::{
     env,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         Mutex,
@@ -15,6 +16,7 @@ use std::{
 use eframe::egui::{self, CentralPanel, ComboBox, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
+use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -58,7 +60,7 @@ struct MaterialEditor {
 }
 
 impl MaterialEditor {
-    fn load_shader(&mut self, file_path: &PathBuf) {
+    fn load_material(&mut self, file_path: &PathBuf) {
         self.shader_path = file_path.clone();
         get_config().shader_directory = self
             .shader_path
@@ -71,17 +73,17 @@ impl MaterialEditor {
             if let Some(snippet_key_idx) = material_toml.find(key) {
                 let snippet_start = snippet_key_idx + key.len();
                 let snippet = &material_toml[snippet_start..];
-                let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+                let snippet_end = [
+                    "[texture_descs]",
+                    "[get_world_offset]",
+                    "[get_fragment_color]",
+                ]
+                .iter()
+                .filter_map(|key| snippet.find(key))
+                .min()
+                .unwrap_or(snippet.len());
 
-                println!(
-                    "-------->>> {}",
-                    snippet[..snippet_end]
-                        .trim_start_matches(|c| c == '\n' || c == '\r')
-                        .to_string()
-                );
-                self.uniforms_text = snippet[..snippet_end]
-                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                    .to_string();
+                self.uniforms_text = snippet[..snippet_end].trim_start().trim_end().to_string();
             }
 
             let key = "[texture_descs]";
@@ -114,6 +116,40 @@ impl MaterialEditor {
                     .trim_start()
                     .trim_end()
                     .to_string();
+            }
+        }
+    }
+
+    fn save_material(&self, file_path: &PathBuf) {
+        if let Ok(mut file) = File::create(file_path) {
+            let toml_mat = format!(
+                "get_world_offset = \"\"\"\n{}\n\"\"\"\n\nget_fragment_color = \"\"\"\n{}\"\"\"\n\n[uniform_types]\n{}\n\n[texture_descs]\n{}\n",
+                self.world_offset_text
+                    .trim_start()
+                    .trim_end()
+                    .replace("\r", "\n"),
+                self.frag_color_text
+                    .trim_start()
+                    .trim_end()
+                    .replace("\r", "\n"),
+                self.uniforms_text
+                    .trim_start()
+                    .trim_end()
+                    .replace("\r", "\n"),
+                self.textures_text
+                    .trim_start()
+                    .trim_end()
+                    .replace("\r", "\n"),
+            );
+
+            if let Err(result) = file.write_all(toml_mat.as_bytes()) {
+                println!(
+                    "Failed to write material {} with error {}",
+                    file_path.to_string_lossy(),
+                    result.to_string()
+                );
+            } else {
+                println!("Saved material {}", file_path.to_string_lossy());
             }
         }
     }
@@ -153,9 +189,9 @@ impl eframe::App for MaterialEditor {
                 let file_button = ui.button("File:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
-                        .set_directory(&get_config().shader_directory.canonicalize().unwrap());
+                        .set_directory(&get_config().shader_directory.canonicalize().unwrap_or("./".into()));
                     if let Some(file_path) = file_picker.pick_file() {
-                        self.load_shader(&file_path);
+                        self.load_material(&file_path);
                         save_config = true;
                     }
                 }
@@ -164,7 +200,17 @@ impl eframe::App for MaterialEditor {
                 // Save Shader
                 let save_button = ui.button("Save");
                 if save_button.clicked() {
-                    println!("Save button clicked!");
+                    let file_picker = FileDialog::new()
+                        .set_title("Save Material")
+                        .set_directory(&get_config().shader_directory.canonicalize().unwrap())
+                        .set_file_name(self.shader_path.file_name().unwrap_or(&std::ffi::OsString::from("./")).to_string_lossy())
+                        .save_file();
+
+                    if let Some(save_file_path) = file_picker {
+                        self.save_material(&save_file_path);
+                    } else {
+                        println!("Failed to save material");
+                    }
                 }
             });
 
@@ -289,7 +335,7 @@ impl eframe::App for MaterialEditor {
                         if file_button.clicked() {
                             save_config = true;
                             let file_picker = rfd::FileDialog::new().set_directory(
-                                &get_config().texture_directories[i].canonicalize().unwrap(),
+                                &get_config().texture_directories[i].canonicalize().unwrap_or("./".into())
                             );
                             if let Some(file_path) = file_picker.pick_file() {
                                 cmd_string =
@@ -383,8 +429,8 @@ fn main() -> eframe::Result {
     // Window and Gui
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([640.0, 800.0])
-            .with_position([800.0, 100.0]),
+            .with_inner_size([640.0, 900.0])
+            .with_position([800.0, 25.0]),
         ..Default::default()
     };
 

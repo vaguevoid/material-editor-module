@@ -32,15 +32,20 @@ const CAMERA_MOVE_SPEED: f32 = 200.;
 const MAX_ZOOM: f32 = 100.;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    println!("Opening shared file...");
+
+    match std::env::current_dir() {
+        Ok(path) => println!("  The current working directory is: {}", path.display()),
+        Err(e) => eprintln!("   Error getting current directory: {}", e),
+    }
+
     let _ = std::fs::create_dir("./temp/");
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
         .open("./temp/shared_memory.bin")
         .expect("Failed to open file");
-
     file.set_len(131072).expect("Failed to set file size");
 
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
@@ -72,9 +77,11 @@ impl Default for MaterialEditor {
 fn initialize_module() {
     println!("Initializing Material Editor module.");
 
-    match std::env::current_dir() {
-        Ok(path) => println!("The current working directory is: {}", path.display()),
-        Err(e) => eprintln!("Error getting current directory: {}", e),
+    #[cfg(target_os = "macos")]
+    if !Path::new("./target/debug/").exists() {
+        let exe_path = std::env::current_exe().expect("Failed to get executable path");
+        let app_dir = exe_path.parent().expect("Failed to get parent directory");
+        std::env::set_current_dir(app_dir).expect("Failed to set current directory");
     }
 
     // Init shared mem
@@ -83,13 +90,42 @@ fn initialize_module() {
     }
 
     // Open the gui
-    let material_editor_gui = "./target/debug/material_editor_gui.exe";
+    #[cfg(not(target_os = "macos"))]
+    let material_editor_gui = {
+        if Path::new("./target/debug/material_editor_gui.exe").exists() {
+            "./target/debug/material_editor_gui.exe"
+        } else {
+            "./material_editor_gui.exe"
+        }
+    };
+
+    #[cfg(target_os = "macos")]
+    let material_editor_gui = {
+        if Path::new("./target/debug/").exists() {
+            "./target/debug/material_editor_gui"
+        } else {
+            "./material_editor_gui"
+        }
+    };
+    /* if !Path::new("./target/debug/").exists() {
+        // "Run and Debug" on Mac automatically spawns a material_editor_gui process, so skip manually spawning one from the debugger
+        let _ = Command::new("./material_editor_gui")
+            .spawn()
+            .expect("Failed to start Material Editor Gui");
+    }*/
+
     let _ = Command::new(material_editor_gui)
         .spawn()
-        .expect("Failed to start Project B");
+        .expect("Failed to start Material Editor Gui");
 
     // Load scene
-    let scene_str = fs::read_to_string(Path::new("../engine/target/debug/assets/scene.json"));
+    let scene_path = "../engine/target/debug/assets/scene.json";
+    let scene_str = if Path::new(scene_path).exists() {
+        fs::read_to_string("../engine/target/debug/assets/scene.json")
+    } else {
+        fs::read_to_string("./assets/scene.json")
+    };
+
     assert!(scene_str.is_ok());
 
     let scene_str = scene_str.unwrap();
@@ -174,7 +210,7 @@ fn update_shared_mem(
                                 parts[3], frag_color, parts[1], parts[2],
                             );
 
-                            dbg!("---> {}", &toml_shader);
+                            // dbg!("---> {}", &toml_shader);
                             let mat_id = gpu_interface
                                 .material_manager
                                 .register_material_from_string(
