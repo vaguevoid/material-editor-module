@@ -92,8 +92,6 @@ fn initialize_module() {
     // Open the gui
     #[cfg(not(target_os = "macos"))]
     let material_editor_gui = {
-        println!("NOT UB NAC IS TGUBAG!");
-
         if Path::new("./target/debug/material_editor_gui.exe").exists() {
             "./target/debug/material_editor_gui.exe"
         } else {
@@ -212,7 +210,7 @@ fn update_shared_mem(
                                 parts[3], frag_color, parts[1], parts[2],
                             );
 
-                            dbg!("---> {}", &toml_shader);
+                            // dbg!("---> {}", &toml_shader);
                             let mat_id = gpu_interface
                                 .material_manager
                                 .register_material_from_string(
