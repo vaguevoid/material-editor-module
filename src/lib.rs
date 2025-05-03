@@ -22,7 +22,7 @@ use once_cell::sync::Lazy;
 
 use void_public::{
     event::{graphics::NewTexture, input::KeyCode},
-    graphics::{MaterialId, MaterialParameters, TextureId, TextureRender},
+    graphics::{DefaultMaterials, MaterialId, MaterialParameters, TextureId, TextureRender},
     input::InputState,
     *,
 };
@@ -171,13 +171,10 @@ fn update_shared_mem(
 
                             let toml_shader = format!(
                                 "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
-                                parts[3].replace('\n', "").trim_end().trim_start(),
-                                frag_color.replace('\n', "").trim_end().trim_start(),
-                                parts[1].replace('\n', "").trim_end().trim_start(),
-                                parts[2].replace('\n', "").trim_end(),
+                                parts[3], frag_color, parts[1], parts[2],
                             );
 
-                            // dbg!("---> {}", &toml_shader);
+                            dbg!("---> {}", &toml_shader);
                             let mat_id = gpu_interface
                                 .material_manager
                                 .register_material_from_string(
@@ -203,11 +200,12 @@ fn update_shared_mem(
                                     &gpu_interface.material_manager,
                                     wgpu::BlendState::ALPHA_BLENDING,
                                 );
+                            } else {
+                                new_material_id =
+                                    Some(DefaultMaterials::MissingOrBroken.material_id());
                             }
                             println!("Module - Material Compiled");
                         }
-                    } else {
-                        //    println!("Module - Unknown Command {}", incoming_command[0]);
                     }
                 }
 

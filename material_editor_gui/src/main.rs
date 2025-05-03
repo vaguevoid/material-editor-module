@@ -89,7 +89,7 @@ impl eframe::App for MaterialEditor {
             ui.set_min_size(available_rect.size());
 
             ui.horizontal(|ui| {
-                let file_button = ui.button("File: ");
+                let file_button = ui.button("File:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
                         .set_directory(&get_config().shader_directory.canonicalize().unwrap());
@@ -108,6 +108,10 @@ impl eframe::App for MaterialEditor {
                                 let snippet_start = snippet_key_idx + key.len();
                                 let snippet = &material_toml[snippet_start..];
                                 let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+
+                                println!("-------->>> {}", snippet[..snippet_end]
+                                .trim_start_matches(|c| c == '\n' || c == '\r')
+                                .to_string());
                                 self.uniforms_text = snippet[..snippet_end]
                                     .trim_start_matches(|c| c == '\n' || c == '\r')
                                     .to_string();
@@ -192,11 +196,27 @@ impl eframe::App for MaterialEditor {
                         });
                 });
 
+            // Convenience buttons for adding storage buffer variables
             ui.add_space(text_height * 2.);
             ui.horizontal(|ui| {
-                ui.button("Add Vec4");
-                ui.button("Add f32");
-                ui.button("Add Add Array");
+                if ui.button("Add Vec4").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_var_name = \"vec4\"";
+                }
+                if ui.button("Add f32").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_var_name = \"f32\"";
+                }
+                if ui.button("Add Add Array").clicked() {
+                    if !self.uniforms_text.is_empty() {
+                        self.uniforms_text += "\n";
+                    }
+                    self.uniforms_text += "temp_var_name = \"array<vec4f, 8>\"";
+                }
             });
 
             // World Offset
@@ -237,11 +257,11 @@ impl eframe::App for MaterialEditor {
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
                 cmd_string = format!(
-                    "compile ##delimiter## {} ##delimiter## {} ##delimiter## {} ##delimiter## {}",
-                    self.uniforms_text,
-                    self.textures_text,
-                    self.world_offset_text,
-                    self.frag_color_text
+                    "compile ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n",
+                    self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.textures_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
+                    self.frag_color_text.replace("\r", "\n").trim_start().trim_end(),
                 );
             }
 
