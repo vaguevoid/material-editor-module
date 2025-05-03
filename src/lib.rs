@@ -32,15 +32,20 @@ const CAMERA_MOVE_SPEED: f32 = 200.;
 const MAX_ZOOM: f32 = 100.;
 
 static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
+    println!("Opening shared file...");
+
+    match std::env::current_dir() { 
+        Ok(path) => println!("  The current working directory is: {}", path.display()),
+        Err(e) => eprintln!("   Error getting current directory: {}", e),
+    }
+
     let _ = std::fs::create_dir("./temp/");
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
         .open("./temp/shared_memory.bin")
         .expect("Failed to open file");
-
     file.set_len(131072).expect("Failed to set file size");
 
     Mutex::new(unsafe { MmapMut::map_mut(&file).expect("Failed to mmap") })
@@ -72,32 +77,45 @@ impl Default for MaterialEditor {
 fn initialize_module() {
     println!("Initializing Material Editor module.");
 
-    match std::env::current_dir() {
-        Ok(path) => println!("The current working directory is: {}", path.display()),
-        Err(e) => eprintln!("Error getting current directory: {}", e),
-    }
-
     // Init shared mem
     if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
         shared_mem[0..].fill(b'\0');
     }
 
+    println!("Where my priunlni!?");
     // Open the gui
+    /*
     #[cfg(not(target_os = "macos"))]
     let material_editor_gui = {
+        println!("NOT UB NAC IS TGUBAG!");
+
         if Path::new("./target/debug/material_editor_gui.exe").exists() {
             "./target/debug/material_editor_gui.exe"
         } else {
             "./material_editor_gui.exe"
-        }  
-    };
+        }
+    };*/
 
     #[cfg(target_os = "macos")]
-    let material_editor_gui = "./target/debug/material_editor_gui";
+    let material_editor_gui = {
+        println!("NOT UB NAC IS TGUBAG!");
+
+        if Path::new("./target/debug/").exists() {
+            "./target/debug/material_editor_gui"
+        } else {
+            "./material_editor_gui"
+        }
+    };
+   /* if !Path::new("./target/debug/").exists() {
+        // "Run and Debug" on Mac automatically spawns a material_editor_gui process, so skip manually spawning one from the debugger
+        let _ = Command::new("./material_editor_gui")
+            .spawn()
+            .expect("Failed to start Material Editor Gui");
+    }*/
 
     let _ = Command::new(material_editor_gui)
-        .spawn()
-        .expect("Failed to start Material Editor Gui");
+    .spawn()
+    .expect("Failed to start Material Editor Gui");
 
     // Load scene
     let scene_path = "../engine/target/debug/assets/scene.json";
@@ -106,7 +124,7 @@ fn initialize_module() {
     } else {
         fs::read_to_string("./assets/scene.json")
     };
-    
+
     assert!(scene_str.is_ok());
 
     let scene_str = scene_str.unwrap();

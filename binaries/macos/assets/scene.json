@@ -1,0 +1,40 @@
+{
+  "entities": [
+    {
+      "id": "sprite",
+      "components": {
+        "void_public::Transform": {
+          "position": [0.0, 0.0, 0.0],
+          "scale": [10.0, 10.0]
+        },
+        "void_public::graphics::TextureRender": {
+          "asset_path": "textures/player_front.png"
+        },
+        "transform_demo::Velocity": [0.0, 0.0],
+        "transform_demo::Player": {},
+        "transform_demo::Timer": {}
+      }
+    },
+    {
+      "id": "player_1_camera",
+      "parent_id": "player_1",
+      "components": {
+        "void_public::Transform": {},
+        "void_public::Camera": {
+          "is_enabled": true,
+          "orthographic_size": 17.0,
+          "clear_color": [0.0, 0.0, 0.545098, 1.0],
+          "viewport_ratio": {
+            "x": 0.0,
+            "y": 0.0,
+            "width": 1.0,
+            "height": 1.0
+          },
+          "render_order": 0
+        }
+      }
+    }
+  ],
+  "assets": [],
+  "version": "0.0.2"
+}

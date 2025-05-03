@@ -189,7 +189,7 @@ impl eframe::App for MaterialEditor {
                 let file_button = ui.button("File:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
-                        .set_directory(&get_config().shader_directory.canonicalize().unwrap());
+                        .set_directory(&get_config().shader_directory.canonicalize().unwrap_or("./".into()));
                     if let Some(file_path) = file_picker.pick_file() {
                         self.load_material(&file_path);
                         save_config = true;
