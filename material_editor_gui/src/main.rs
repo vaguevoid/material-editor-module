@@ -203,7 +203,7 @@ impl eframe::App for MaterialEditor {
                     let file_picker = FileDialog::new()
                         .set_title("Save Material")
                         .set_directory(&get_config().shader_directory.canonicalize().unwrap())
-                        .set_file_name(self.shader_path.file_name().unwrap().to_string_lossy())
+                        .set_file_name(self.shader_path.file_name().unwrap_or(&std::ffi::OsString::from("./")).to_string_lossy())
                         .save_file();
 
                     if let Some(save_file_path) = file_picker {
@@ -335,7 +335,7 @@ impl eframe::App for MaterialEditor {
                         if file_button.clicked() {
                             save_config = true;
                             let file_picker = rfd::FileDialog::new().set_directory(
-                                &get_config().texture_directories[i].canonicalize().unwrap(),
+                                &get_config().texture_directories[i].canonicalize().unwrap_or("./".into())
                             );
                             if let Some(file_path) = file_picker.pick_file() {
                                 cmd_string =
