@@ -79,9 +79,9 @@ fn initialize_module() {
 
     #[cfg(target_os = "macos")]
     if !Path::new("./target/debug/").exists() {
-        let exe_path = env::current_exe().expect("Failed to get executable path");
+        let exe_path = std::env::current_exe().expect("Failed to get executable path");
         let app_dir = exe_path.parent().expect("Failed to get parent directory");
-        env::set_current_dir(app_dir).expect("Failed to set current directory");
+        std::env::set_current_dir(app_dir).expect("Failed to set current directory");
     }
 
     // Init shared mem
