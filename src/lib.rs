@@ -82,9 +82,7 @@ fn initialize_module() {
         shared_mem[0..].fill(b'\0');
     }
 
-    println!("Where my priunlni!?");
     // Open the gui
-    /*
     #[cfg(not(target_os = "macos"))]
     let material_editor_gui = {
         println!("NOT UB NAC IS TGUBAG!");
@@ -94,12 +92,10 @@ fn initialize_module() {
         } else {
             "./material_editor_gui.exe"
         }
-    };*/
+    };
 
     #[cfg(target_os = "macos")]
     let material_editor_gui = {
-        println!("NOT UB NAC IS TGUBAG!");
-
         if Path::new("./target/debug/").exists() {
             "./target/debug/material_editor_gui"
         } else {
