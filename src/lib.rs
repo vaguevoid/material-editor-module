@@ -83,7 +83,12 @@ fn initialize_module() {
     }
 
     // Open the gui
+    #[cfg(not(target_os = "macos"))]
     let material_editor_gui = "./target/debug/material_editor_gui.exe";
+
+    #[cfg(target_os = "macos")]
+    let material_editor_gui = "./target/debug/material_editor_gui";
+
     let _ = Command::new(material_editor_gui)
         .spawn()
         .expect("Failed to start Project B");
