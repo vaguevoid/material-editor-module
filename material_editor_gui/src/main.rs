@@ -12,7 +12,7 @@ use std::{
     },
 };
 
-use eframe::egui::{self, CentralPanel, ComboBox, Grid, ScrollArea, TextEdit};
+use eframe::egui::{self, CentralPanel, ComboBox, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -73,9 +73,12 @@ impl MaterialEditor {
                 let snippet = &material_toml[snippet_start..];
                 let snippet_end = snippet.find('[').unwrap_or(snippet.len());
 
-                println!("-------->>> {}", snippet[..snippet_end]
-                .trim_start_matches(|c| c == '\n' || c == '\r')
-                .to_string());
+                println!(
+                    "-------->>> {}",
+                    snippet[..snippet_end]
+                        .trim_start_matches(|c| c == '\n' || c == '\r')
+                        .to_string()
+                );
                 self.uniforms_text = snippet[..snippet_end]
                     .trim_start_matches(|c| c == '\n' || c == '\r')
                     .to_string();
@@ -86,9 +89,7 @@ impl MaterialEditor {
                 let snippet_start = snippet_key_idx + key.len();
                 let snippet = &material_toml[snippet_start..];
                 let snippet_end = snippet.find('[').unwrap_or(snippet.len());
-                self.textures_text = snippet[..snippet_end]
-                    .trim_start_matches(|c| c == '\n' || c == '\r')
-                    .to_string();
+                self.textures_text = snippet[..snippet_end].trim_start().trim_end().to_string();
             }
 
             let key = "get_world_offset";
@@ -98,7 +99,8 @@ impl MaterialEditor {
                 let start = snippet.find("\"\"\"").unwrap();
                 let end = snippet[start + 3..].find("\"\"\"").unwrap();
                 self.world_offset_text = snippet[start + 3..start + 3 + end]
-                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .trim_start()
+                    .trim_end()
                     .to_string();
             }
 
@@ -109,7 +111,8 @@ impl MaterialEditor {
                 let start = snippet.find("\"\"\"").unwrap();
                 let end = snippet[start + 3..].find("\"\"\"").unwrap();
                 self.frag_color_text = snippet[start + 3..start + 3 + end]
-                    .trim_start_matches(|c| c == '\n' || c == '\r')
+                    .trim_start()
+                    .trim_end()
                     .to_string();
             }
         }
@@ -167,63 +170,68 @@ impl eframe::App for MaterialEditor {
 
             // Uniforms and textures
             ui.add_space(text_height * 2.);
-            Grid::new("uniform_texture")
-                .num_columns(2)
-                .max_col_width(usable_width)
+
+            ui.label("Uniforms:");
+            ScrollArea::vertical()
+                .id_salt("uniform_scroll")
+                .max_width(usable_width)
+                .max_height(75.)
                 .show(ui, |ui| {
-                    ui.label("Uniforms:");
-                    ui.label("Textures:");
-                    ui.end_row();
-
-                    ScrollArea::vertical()
-                        .id_salt("uniform_scroll")
-                        .max_width(usable_width)
-                        .max_height(75.)
-                        .show(ui, |ui| {
-                            ui.add(
-                                TextEdit::multiline(&mut self.uniforms_text)
-                                    .code_editor()
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_rows(10),
-                            );
-                        });
-
-                    ScrollArea::vertical()
-                        .id_salt("texture_scroll")
-                        .max_width(usable_width)
-                        .max_height(75.)
-                        .show(ui, |ui| {
-                            ui.add(
-                                TextEdit::multiline(&mut self.textures_text)
-                                    .code_editor()
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_rows(10),
-                            );
-                        });
+                    ui.add(
+                        TextEdit::multiline(&mut self.uniforms_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(10),
+                    );
                 });
 
             // Convenience buttons for adding storage buffer variables
-            ui.add_space(text_height * 2.);
+            ui.add_space(text_height);
             ui.horizontal(|ui| {
                 if ui.button("Add Vec4").clicked() {
                     if !self.uniforms_text.is_empty() {
                         self.uniforms_text += "\n";
                     }
-                    self.uniforms_text += "temp_var_name = \"vec4\"";
+                    self.uniforms_text += "temp_vec4_var = { type = \"vec4f\", default = [1.0, 1.0, 1.0, 1.0] }";
                 }
                 if ui.button("Add f32").clicked() {
                     if !self.uniforms_text.is_empty() {
                         self.uniforms_text += "\n";
                     }
-                    self.uniforms_text += "temp_var_name = \"f32\"";
+                    self.uniforms_text += "temp_f32_var = { type = \"f32\", default = 1.2 }";
                 }
                 if ui.button("Add Add Array").clicked() {
                     if !self.uniforms_text.is_empty() {
                         self.uniforms_text += "\n";
                     }
-                    self.uniforms_text += "temp_var_name = \"array<vec4f, 8>\"";
+                    self.uniforms_text += "temp_array_var = { type = \"array<vec4f, 3>\", default = [\n\t[1.0, 0.8, 0.6, 1.0],\n\t[0.5, 0.7, 0.9, 1.0],\n\t[0.1, 0.2, 0.3, 1.0],\n] }";
                 }
             });
+
+            // Textures
+            ui.add_space(text_height * 2.);
+            ui.label("Textures:");
+            ScrollArea::vertical()
+                .id_salt("texture_scroll")
+                .max_width(usable_width)
+                .max_height(75.)
+                .show(ui, |ui| {
+                    ui.add(
+                        TextEdit::multiline(&mut self.textures_text)
+                            .code_editor()
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(10),
+                    );
+                });
+                ui.add_space(text_height);
+                if ui.button("Add Texture").clicked() {
+                    if !self.textures_text.is_empty() {
+                        self.textures_text += "\n";
+                    }
+                    self.textures_text += "temp_texture = \"linear\"";
+                }
 
             // World Offset
             ui.add_space(text_height * 2.);

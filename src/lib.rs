@@ -226,8 +226,14 @@ fn update_shared_mem(
     }
 
     texture_query.for_each(|(_, parameters)| {
-        if new_material_id.is_some() {
-            println!("Setting new material id {}", new_material_id.unwrap());
+        if let Some(material_id) = new_material_id {
+            let default_material = gpu_interface
+                .material_manager
+                .get_material(material_id)
+                .unwrap();
+
+            parameters.data = default_material.generate_default_material_parameters().data;
+
             parameters.material_id = new_material_id.unwrap();
         }
         if new_tex_id.is_some() {

@@ -2964,6 +2964,7 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
