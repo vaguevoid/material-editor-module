@@ -6,10 +6,10 @@
             "type": "process",
             "windows":{
                 "command": "cargo-fiasco.exe",
-                "args": ["build", "--symbols", "--copy", "C:/projects/void/engine/target/debug"]
+                "args": ["build", "--symbols", "--copy", "C:/Users/ben_a/OneDrive/Documents/Desktop/projects/void/engine/target/release/"]
             },
             "command": "cargo-fiasco",
-            "args": ["build", "--symbols", "--copy", "C:/projects/void/engine/target/debug"]
+            "args": ["build", "--symbols", "--copy", "C:/Users/ben_a/OneDrive/Documents/Desktop/projects/void/engine/target/release/"]
         }
     ]
 }

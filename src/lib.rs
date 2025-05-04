@@ -157,96 +157,97 @@ fn update_shared_mem(
             let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
             if !read_barrier.load(Ordering::Acquire) {
+                let outgoing_command = String::new();
                 let incoming_message =
                     std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                let incoming_command: Vec<&str> = incoming_message
-                    .split(|c: char| c.is_whitespace() || c == '\0')
-                    .collect();
-                let outgoing_command = String::new();
+                if incoming_message.as_bytes()[0] != b'\0' {
+                    let incoming_command: Vec<&str> = incoming_message.split("##DELIM##").collect();
 
-                // Todo: always true
-                if incoming_command.len() > 0 {
-                    if incoming_command[0] == "load_texture" {
-                        let texture_path = incoming_command[1];
+                    // Todo: always true
+                    if incoming_command.len() > 0 {
+                        println!("Module - Message received {}", incoming_command[0]);
 
-                        println!("load_texture called {texture_path}");
+                        if incoming_command[0] == "load_texture" {
+                            let texture_path = incoming_command[1];
 
-                        let id = if let Some(tex) = gpu_interface
-                            .texture_asset_manager
-                            .get_texture_by_path(&texture_path.into())
-                        {
-                            tex.id()
-                        } else {
-                            let id = gpu_interface
+                            println!("load_texture called {texture_path}");
+
+                            let id = if let Some(tex) = gpu_interface
                                 .texture_asset_manager
-                                .register_next_texture_id();
-                            let pending_texture =
-                                PendingTexture::new(id, &texture_path.into(), false);
-                            let _ = gpu_interface
-                                .texture_asset_manager
-                                .load_texture_by_pending_texture(
-                                    &pending_texture,
-                                    &new_texture_event_writer,
-                                );
-                            id
-                        };
-
-                        new_tex_id = Some(id);
-                    } else if incoming_command[0] == "compile" {
-                        println!("Module - Compile material ----");
-                        if let Some(_mat) = gpu_interface
-                            .material_manager
-                            .get_material(material_editor.material_id)
-                        {
-                            let parts: Vec<&str> =
-                                incoming_message.split("##delimiter##").collect();
-
-                            let end_of_color = parts[4].find('\0').unwrap_or(parts.len());
-                            let frag_color = &parts[4][..end_of_color];
-
-                            let toml_shader = format!(
-                                "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
-                                parts[3], frag_color, parts[1], parts[2],
-                            );
-
-                            // dbg!("---> {}", &toml_shader);
-                            let mat_id = gpu_interface
-                                .material_manager
-                                .register_material_from_string(
-                                    DEFAULT_SHADER_ID,
-                                    "test_mat",
-                                    &toml_shader,
-                                );
-
-                            println!("mat_id = {:?}", mat_id);
-
-                            if let Ok(material_id) = mat_id {
-                                new_material_id = Some(material_id);
-                                let resolve_target = gpu_resource
-                                    .texture_manager
-                                    .get_render_target(RenderTargetType::ColorResolve);
-
-                                println!("registering pipeline");
-                                gpu_resource.pipeline_manager.register_pipeline(
-                                    material_id,
-                                    resolve_target.texture.format(),
-                                    4,
-                                    &gpu_resource.device,
-                                    &gpu_interface.material_manager,
-                                    wgpu::BlendState::ALPHA_BLENDING,
-                                );
+                                .get_texture_by_path(&texture_path.into())
+                            {
+                                tex.id()
                             } else {
-                                new_material_id =
-                                    Some(DefaultMaterials::MissingOrBroken.material_id());
+                                let id = gpu_interface
+                                    .texture_asset_manager
+                                    .register_next_texture_id();
+                                let pending_texture =
+                                    PendingTexture::new(id, &texture_path.into(), false);
+                                let _ = gpu_interface
+                                    .texture_asset_manager
+                                    .load_texture_by_pending_texture(
+                                        &pending_texture,
+                                        &new_texture_event_writer,
+                                    );
+                                id
+                            };
+
+                            new_tex_id = Some(id);
+                        } else if incoming_command[0] == "compile" {
+                            println!("Module - Compile material ----");
+                            if let Some(_mat) = gpu_interface
+                                .material_manager
+                                .get_material(material_editor.material_id)
+                            {
+                                let parts: Vec<&str> =
+                                    incoming_message.split("##DELIM##").collect();
+
+                                let toml_shader = format!(
+                                    "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
+                                    parts[3], parts[4], parts[1], parts[2],
+                                );
+
+                                // dbg!("---> {}", &toml_shader);
+                                let mat_id = gpu_interface
+                                    .material_manager
+                                    .register_material_from_string(
+                                        DEFAULT_SHADER_ID,
+                                        "test_mat",
+                                        &toml_shader,
+                                    );
+
+                                println!("mat_id = {:?}", mat_id);
+
+                                if let Ok(material_id) = mat_id {
+                                    new_material_id = Some(material_id);
+                                    let resolve_target = gpu_resource
+                                        .texture_manager
+                                        .get_render_target(RenderTargetType::ColorResolve);
+
+                                    println!("registering pipeline");
+                                    gpu_resource.pipeline_manager.register_pipeline(
+                                        material_id,
+                                        resolve_target.texture.format(),
+                                        4,
+                                        &gpu_resource.device,
+                                        &gpu_interface.material_manager,
+                                        wgpu::BlendState::ALPHA_BLENDING,
+                                    );
+                                } else {
+                                    new_material_id =
+                                        Some(DefaultMaterials::MissingOrBroken.material_id());
+                                }
+                                println!("Module - Material Compiled");
                             }
-                            println!("Module - Material Compiled");
                         }
                     }
-                }
 
-                // Clear shared_mem buffer
-                shared_mem[1..].fill(b'\0');
+                    println!("Module - clear!");
+
+                    // Clear shared_mem buffer
+                    shared_mem[1..].fill(b'\0');
+                }
 
                 // Write outgoing commands
                 if !outgoing_command.is_empty() {

@@ -317,7 +317,7 @@ impl eframe::App for MaterialEditor {
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
                 cmd_string = format!(
-                    "compile ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n",
+                    "compile##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##",
                     self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
                     self.textures_text.replace("\r", "\n").trim_start().trim_end(),
                     self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
@@ -339,7 +339,7 @@ impl eframe::App for MaterialEditor {
                             );
                             if let Some(file_path) = file_picker.pick_file() {
                                 cmd_string =
-                                    format!("load_texture {}", file_path.to_str().unwrap());
+                                    format!("load_texture##DELIM##{}##DELIM##", file_path.to_str().unwrap());
                                 if let Some(file_name) = file_path.file_name() {
                                     self.textures[i] =
                                         file_name.to_string_lossy().to_owned().to_string();
@@ -364,20 +364,17 @@ impl eframe::App for MaterialEditor {
                     let incoming_message =
                         std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                    // TODO: Always true
-                    if incoming_message.len() > 1 {
-                        /*
-                        let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
-
-                        if parts.len() >= 3 {
-                            self.world_offset_text = parts[1].to_string();
-                            self.frag_color_text = parts[2].to_string();
-                        }*/
+                    if incoming_message.as_bytes()[0] != b'\0' {
+                        println!("Gui - clear!");
+                        // Process incoming messages here
+                        shared_mem[1..].fill(b'\0');
                     }
-                    shared_mem[1..].fill(b'\0');
 
                     if cmd_string.len() > 0 {
-                        // println!("Gui - Sending command wth len {} {cmd_string}", cmd_string.len());
+                        println!(
+                            "Gui - Sending command wth len {} {cmd_string}",
+                            cmd_string.len()
+                        );
                         shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
                     }
 
@@ -425,7 +422,7 @@ fn main() -> eframe::Result {
     unsafe {
         GLOBAL_CONFIG = Some(user_settings);
     }
-    println!("TEXTURE DIR = {:?}", get_config().texture_directories[0]);
+
     // Window and Gui
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
