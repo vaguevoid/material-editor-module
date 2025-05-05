@@ -379,17 +379,15 @@ impl eframe::App for MaterialEditor {
 
                     ui.label(format!("{}:", var_name));
                     let prev_color = color;
-                    let mut color_picker = ui.color_edit_button_rgba_unmultiplied(&mut color);
+
+                    let _color_picker = ui.color_edit_button_rgba_unmultiplied(&mut color);
+                    let color_str = format!("[{:.1}, {:.1}, {:.1}, {:.1}]", color[0], color[1], color[2], color[3]);
                     if prev_color != color && cmd_string.is_empty() {
                         cmd_string = format!(
-                            "compile##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##",
-                            self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
-                            self.textures_text.replace("\r", "\n").trim_start().trim_end(),
-                            self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
-                            self.frag_color_text.replace("\r", "\n").trim_start().trim_end(),
+                            "update_uniform##DELIM##{}##DELIM##{color_str}##DELIM##", var_name
                         );
                     }
-                    format!(r#"{} = {{ type = "vec4f", default = [{:.1}, {:.1}, {:.1}, {:.1}]"#, var_name, color[0], color[1], color[2], color[3])
+                    format!(r#"{} = {{ type = "vec4f", default = {color_str}"#, var_name)
                 }).to_string();
             });
         });

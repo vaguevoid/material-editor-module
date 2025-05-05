@@ -12,7 +12,7 @@ use std::{
 use game_asset::{
     ecs_module::GpuInterface,
     resource_managers::{
-        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+        material_manager::{material_parameters_extension::MaterialParametersExt, uniforms::UniformValue, DEFAULT_SHADER_ID}, texture_asset_manager::PendingTexture,
     },
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
@@ -151,7 +151,8 @@ fn update_shared_mem(
 ) {
     let mut new_material_id: Option<MaterialId> = None;
     let mut new_tex_id: Option<TextureId> = None;
-
+    let mut param_update: Option<(String, Vec4)> = None;
+    
     unsafe {
         if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
             let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
@@ -166,9 +167,25 @@ fn update_shared_mem(
 
                     // Todo: always true
                     if incoming_command.len() > 0 {
-                        println!("Module - Message received {}", incoming_command[0]);
+            //            println!("Module - Message received {}", incoming_command[0]);
 
-                        if incoming_command[0] == "load_texture" {
+                        if incoming_command[0] == "update_uniform" {
+
+                            let mut color: [f32;4] = {
+                                let mut color_vec: Vec<f32>  = incoming_command[2]
+                                    .split(',')
+                                    .map(|s| s.trim().parse::<f32>().unwrap_or(1.))
+                                    .collect();
+                                while color_vec.len() < 4 {
+                                    color_vec.push(1.);
+                                }
+                                color_vec.try_into().unwrap_or([1., 1., 1., 1.])
+                            };
+                            param_update = Some(
+                                (incoming_command[1].to_string(), color.into())
+                            );
+                       //     println!("Update Uniform! {:?}{:?}", incoming_command[0], color);
+                        } else if incoming_command[0] == "load_texture" {
                             let texture_path = incoming_command[1];
 
                             println!("load_texture called {texture_path}");
@@ -270,8 +287,16 @@ fn update_shared_mem(
                 .unwrap();
 
             parameters.data = default_material.generate_default_material_parameters().data;
-
             parameters.material_id = new_material_id.unwrap();
+        }
+
+        if let Some(param) = &param_update {
+
+            let uniform = UniformValue::Vec4(param.1.into());
+            println!("Update parameters {:?}", uniform);
+            if let Ok(new_param) = parameters.update_uniforms(&gpu_interface.material_manager,&[(param.0.clone(), &uniform)]) {
+                parameters.data = new_param.data;
+            }
         }
         if new_tex_id.is_some() {
             println!("Setting new tex id {}", new_tex_id.unwrap());
