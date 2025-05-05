@@ -3,6 +3,7 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 use core::f32;
 use std::{
+    collections::HashMap,
     env,
     fs::{self, File, OpenOptions},
     io::Write,
@@ -16,6 +17,7 @@ use std::{
 use eframe::egui::{self, CentralPanel, ComboBox, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -328,8 +330,9 @@ impl eframe::App for MaterialEditor {
             ui.add_space(text_height * 2.);
 
             ui.horizontal(|ui| {
+                // Texture pickers
                 ui.label("Textures");
-                ComboBox::from_id_salt("Textures").show_ui(ui, |ui| {
+                ComboBox::from_id_salt("Texture_Picker").show_ui(ui, |ui| {
                     for i in 0..16 {
                         let file_button = ui.button(format!("Texture[{i}]"));
                         if file_button.clicked() {
@@ -353,9 +356,44 @@ impl eframe::App for MaterialEditor {
                         ui.text_edit_singleline(&mut self.textures[i]);
                     }
                 });
-            });
-        });
 
+                // Uniform Pickers
+                let re = Regex::new(r#"(\w+)\s*=\s*\{\s*type\s*=\s*"vec4f".*?default\s*=\s*\[(.*?)\]"#).unwrap();
+
+
+
+                self.uniforms_text = re.replace_all(&self.uniforms_text, |caps: &regex::Captures| {
+                    let var_name = &caps[1];//.unwrap_or("No name");
+                    let default_value = caps.get(2).map(|m| m.as_str()).unwrap_or("1., 1., 1., 1.");
+
+                 /* */   let mut color: [f32;4] = {
+                        let mut color_vec: Vec<f32>  = default_value
+                            .split(',')
+                            .map(|s| s.trim().parse::<f32>().unwrap_or(1.))
+                            .collect();
+                        while color_vec.len() < 4 {
+                            color_vec.push(1.);
+                        }
+                        color_vec.try_into().unwrap_or([1., 1., 1., 1.])
+                    };
+
+                    let color_picker_id = egui::Id::new("color_picker");
+                    ui.label(format!("{}:", var_name));
+                    let prev_color = color;
+                    let mut color_picker = ui.color_edit_button_rgba_unmultiplied(&mut color);
+                    if prev_color != color && cmd_string.is_empty() {
+                        cmd_string = format!(
+                            "compile##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##",
+                            self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
+                            self.textures_text.replace("\r", "\n").trim_start().trim_end(),
+                            self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
+                            self.frag_color_text.replace("\r", "\n").trim_start().trim_end(),
+                        );
+                    }
+                    format!(r#"{} = {{ type = "vec4f", default = [{:.1}, {:.1}, {:.1}, {:.1}]"#, var_name, color[0], color[1], color[2], color[3])
+            }).to_string();
+        });
+    });
         unsafe {
             if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
                 let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
