@@ -9,10 +9,7 @@
         },
         "void_public::graphics::TextureRender": {
           "asset_path": "textures/player_front.png"
-        },
-        "transform_demo::Velocity": [0.0, 0.0],
-        "transform_demo::Player": {},
-        "transform_demo::Timer": {}
+        }
       }
     },
     {
