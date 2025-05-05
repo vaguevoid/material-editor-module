@@ -16,6 +16,7 @@ use std::{
 use eframe::egui::{self, CentralPanel, ComboBox, ScrollArea, TextEdit};
 use memmap2::MmapMut;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -35,12 +36,12 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
 });
 
 static mut GLOBAL_CONFIG: Option<UserSettings> = None;
+
 #[allow(static_mut_refs)]
 fn get_config() -> &'static mut UserSettings {
     unsafe { GLOBAL_CONFIG.as_mut().unwrap() }
 }
 
-// User Settings
 #[derive(Serialize, Deserialize, Debug)]
 struct UserSettings {
     version: u32,
@@ -91,15 +92,16 @@ impl MaterialEditor {
                 let snippet_start = snippet_key_idx + key.len();
                 let snippet = &material_toml[snippet_start..];
                 let snippet_end = snippet.find('[').unwrap_or(snippet.len());
+
                 self.textures_text = snippet[..snippet_end].trim_start().trim_end().to_string();
             }
 
             let key = "get_world_offset";
             if let Some(snippet_key_idx) = material_toml.find(key) {
                 let snippet = &material_toml[snippet_key_idx..];
-
                 let start = snippet.find("\"\"\"").unwrap();
                 let end = snippet[start + 3..].find("\"\"\"").unwrap();
+
                 self.world_offset_text = snippet[start + 3..start + 3 + end]
                     .trim_start()
                     .trim_end()
@@ -109,9 +111,9 @@ impl MaterialEditor {
             let key = "get_fragment_color";
             if let Some(snippet_key_idx) = material_toml.find(key) {
                 let snippet = &material_toml[snippet_key_idx..];
-
                 let start = snippet.find("\"\"\"").unwrap();
                 let end = snippet[start + 3..].find("\"\"\"").unwrap();
+
                 self.frag_color_text = snippet[start + 3..start + 3 + end]
                     .trim_start()
                     .trim_end()
@@ -126,21 +128,17 @@ impl MaterialEditor {
                 "get_world_offset = \"\"\"\n{}\n\"\"\"\n\nget_fragment_color = \"\"\"\n{}\"\"\"\n\n[uniform_types]\n{}\n\n[texture_descs]\n{}\n",
                 self.world_offset_text
                     .trim_start()
-                    .trim_end()
-                    .replace("\r", "\n"),
+                    .trim_end(),
                 self.frag_color_text
                     .trim_start()
-                    .trim_end()
-                    .replace("\r", "\n"),
+                    .trim_end(),
                 self.uniforms_text
                     .trim_start()
-                    .trim_end()
-                    .replace("\r", "\n"),
+                    .trim_end(),
                 self.textures_text
                     .trim_start()
                     .trim_end()
-                    .replace("\r", "\n"),
-            );
+            ).replace("\r", "\n");
 
             if let Err(result) = file.write_all(toml_mat.as_bytes()) {
                 println!(
@@ -157,10 +155,8 @@ impl MaterialEditor {
 
 impl Default for MaterialEditor {
     fn default() -> Self {
-        let shader_path: PathBuf = env::current_dir().unwrap();
-
         Self {
-            shader_path,
+            shader_path: env::current_dir().unwrap_or("./".into()),
             textures: std::array::from_fn(|_| String::new()),
             uniforms_text: "".to_string(),
             textures_text: "".to_string(),
@@ -171,7 +167,7 @@ impl Default for MaterialEditor {
 }
 
 impl eframe::App for MaterialEditor {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         let mut cmd_string = String::new();
         let mut save_config = false;
 
@@ -184,9 +180,9 @@ impl eframe::App for MaterialEditor {
 
             ui.set_min_size(available_rect.size());
 
+            // Load/Save Buttons
             ui.horizontal(|ui| {
-                // Load Shader
-                let file_button = ui.button("File:");
+                let file_button = ui.button("Load:");
                 if file_button.clicked() {
                     let file_picker = rfd::FileDialog::new()
                         .set_directory(&get_config().shader_directory.canonicalize().unwrap_or("./".into()));
@@ -197,8 +193,7 @@ impl eframe::App for MaterialEditor {
                 }
                 ui.text_edit_singleline(&mut self.shader_path.to_str().unwrap());
 
-                // Save Shader
-                let save_button = ui.button("Save");
+                let save_button = ui.button("Save:");
                 if save_button.clicked() {
                     let file_picker = FileDialog::new()
                         .set_title("Save Material")
@@ -214,9 +209,8 @@ impl eframe::App for MaterialEditor {
                 }
             });
 
-            // Uniforms and textures
+            // Uniforms and texture text snippets
             ui.add_space(text_height * 2.);
-
             ui.label("Uniforms:");
             ScrollArea::vertical()
                 .id_salt("uniform_scroll")
@@ -232,7 +226,7 @@ impl eframe::App for MaterialEditor {
                     );
                 });
 
-            // Convenience buttons for adding storage buffer variables
+            // Convenience buttons for adding new uniform variables
             ui.add_space(text_height);
             ui.horizontal(|ui| {
                 if ui.button("Add Vec4").clicked() {
@@ -308,16 +302,17 @@ impl eframe::App for MaterialEditor {
                         TextEdit::multiline(&mut self.frag_color_text)
                             .code_editor()
                             .desired_width(f32::INFINITY)
-                            .desired_rows(25)
+                            .desired_rows(15)
                             .font(egui::TextStyle::Monospace),
                     );
                 });
 
+            // Compile material button
             ui.add_space(text_height);
             let compile_button = ui.button("Compile");
             if compile_button.clicked() {
                 cmd_string = format!(
-                    "compile ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n ##delimiter## {}\n",
+                    "compile##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##{}\n##DELIM##",
                     self.uniforms_text.replace("\r", "\n").trim_start().trim_end(),
                     self.textures_text.replace("\r", "\n").trim_start().trim_end(),
                     self.world_offset_text.replace("\r", "\n").trim_start().trim_end(),
@@ -325,11 +320,11 @@ impl eframe::App for MaterialEditor {
                 );
             }
 
+            // Texture picking + material parameter widgets
             ui.add_space(text_height * 2.);
-
             ui.horizontal(|ui| {
                 ui.label("Textures");
-                ComboBox::from_id_salt("Textures").show_ui(ui, |ui| {
+                ComboBox::from_id_salt("Texture_Picker").show_ui(ui, |ui| {
                     for i in 0..16 {
                         let file_button = ui.button(format!("Texture[{i}]"));
                         if file_button.clicked() {
@@ -339,7 +334,7 @@ impl eframe::App for MaterialEditor {
                             );
                             if let Some(file_path) = file_picker.pick_file() {
                                 cmd_string =
-                                    format!("load_texture {}", file_path.to_str().unwrap());
+                                    format!("load_texture##DELIM##{}##DELIM##", file_path.to_str().unwrap());
                                 if let Some(file_name) = file_path.file_name() {
                                     self.textures[i] =
                                         file_name.to_string_lossy().to_owned().to_string();
@@ -353,41 +348,66 @@ impl eframe::App for MaterialEditor {
                         ui.text_edit_singleline(&mut self.textures[i]);
                     }
                 });
+
+                // Extracts variable data from [uniform_types].
+                // ex: given temp_vec4_var = { type = "vec4f", default = [1.0, 1.0, 1.0, 1.0] },
+                //  captures `temp_vec4_var` into `var_name`, and `[1.0, 1.0, 1.0, 1.0]` into `color_vec`
+                let re = Regex::new(r#"(\w+)\s*=\s*\{\s*type\s*=\s*"vec4f".*?default\s*=\s*\[(.*?)\]"#).unwrap();
+
+                self.uniforms_text = re.replace_all(&self.uniforms_text, |caps: &regex::Captures| {
+                    let default_value = caps.get(2).map(|m| m.as_str()).unwrap_or("1., 1., 1., 1.");
+                    let mut color: [f32;4] = {
+                        let color_vec: Vec<f32>  = default_value
+                            .split(',')
+                            .map(|s| s.trim().parse::<f32>().unwrap_or(1.))
+                            .collect();
+
+                        color_vec.try_into().unwrap_or([1., 1., 1., 1.])
+                    };
+
+                    let var_name = &caps[1];
+                    ui.label(format!("{}:", var_name));
+
+                    let prev_color = color;
+                    let _color_picker = ui.color_edit_button_rgba_unmultiplied(&mut color);
+                    let color_str = format!("[{:.1}, {:.1}, {:.1}, {:.1}]", color[0], color[1], color[2], color[3]);
+                    if prev_color != color && cmd_string.is_empty() {
+                        cmd_string = format!(
+                            "update_uniform##DELIM##{}##DELIM##{color_str}##DELIM##", var_name
+                        );
+                    }
+
+                    // Update the uniform in this match with the update color value
+                    format!(r#"{} = {{ type = "vec4f", default = {color_str}"#, var_name)
+                }).to_string();
             });
         });
 
-        unsafe {
-            if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-                let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+        // Process incoming messages
+        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
+            let read_barrier = unsafe { &*(shared_mem.as_ptr() as *mut AtomicBool) };
 
-                if read_barrier.load(Ordering::Acquire) {
-                    let incoming_message =
-                        std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
+            if read_barrier.load(Ordering::Acquire) {
+                let incoming_message =
+                    std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                    // TODO: Always true
-                    if incoming_message.len() > 1 {
-                        /*
-                        let parts: Vec<&str> = incoming_message.split("##delimiter##").collect();
-
-                        if parts.len() >= 3 {
-                            self.world_offset_text = parts[1].to_string();
-                            self.frag_color_text = parts[2].to_string();
-                        }*/
-                    }
+                if incoming_message.as_bytes()[0] != b'\0' {
+                    println!("Gui - clear!");
+                    // Process incoming messages here
                     shared_mem[1..].fill(b'\0');
-
-                    if cmd_string.len() > 0 {
-                        // println!("Gui - Sending command wth len {} {cmd_string}", cmd_string.len());
-                        shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
-                    }
-
-                    read_barrier.store(false, Ordering::Release);
                 }
 
-                shared_mem.flush().expect("Failed to flush");
+                if cmd_string.len() > 0 {
+                    shared_mem[1..cmd_string.len() + 1].copy_from_slice(cmd_string.as_bytes());
+                }
+
+                read_barrier.store(false, Ordering::Release);
             }
+
+            shared_mem.flush().expect("Failed to flush");
         }
 
+        // Save config settings if updated
         if save_config {
             let _ = fs::write(
                 USER_SETTINGS_PATH,
@@ -411,7 +431,7 @@ fn main() -> eframe::Result {
             shader_directory: "./".into(),
             texture_directories: std::array::from_fn(|_| "./".into()),
         };
-        println!("WRITING CONFIG!");
+
         let _ = fs::write(
             USER_SETTINGS_PATH,
             serde_json::to_string_pretty(&default_config).unwrap(),
@@ -425,7 +445,7 @@ fn main() -> eframe::Result {
     unsafe {
         GLOBAL_CONFIG = Some(user_settings);
     }
-    println!("TEXTURE DIR = {:?}", get_config().texture_directories[0]);
+
     // Window and Gui
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

@@ -12,7 +12,11 @@ use std::{
 use game_asset::{
     ecs_module::GpuInterface,
     resource_managers::{
-        material_manager::DEFAULT_SHADER_ID, texture_asset_manager::PendingTexture,
+        material_manager::{
+            DEFAULT_SHADER_ID, material_parameters_extension::MaterialParametersExt,
+            uniforms::UniformValue,
+        },
+        texture_asset_manager::PendingTexture,
     },
 };
 use game_module_macro::{Component, ResourceWithoutSerialize, system, system_once};
@@ -44,6 +48,7 @@ static SHARED_MEM_FILE: Lazy<Mutex<MmapMut>> = Lazy::new(|| {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open("./temp/shared_memory.bin")
         .expect("Failed to open file");
     file.set_len(131072).expect("Failed to set file size");
@@ -90,30 +95,20 @@ fn initialize_module() {
     }
 
     // Open the gui
-    #[cfg(not(target_os = "macos"))]
     let material_editor_gui = {
-        if Path::new("./target/debug/material_editor_gui.exe").exists() {
+        let path = if Path::new("./target/debug/").exists() {
             "./target/debug/material_editor_gui.exe"
         } else {
             "./material_editor_gui.exe"
-        }
+        };
+
+        #[cfg(target_os = "macos")]
+        let path = path.strip_suffix(".exe").unwrap_or(path);
+
+        path
     };
 
-    #[cfg(target_os = "macos")]
-    let material_editor_gui = {
-        if Path::new("./target/debug/").exists() {
-            "./target/debug/material_editor_gui"
-        } else {
-            "./material_editor_gui"
-        }
-    };
-    /* if !Path::new("./target/debug/").exists() {
-        // "Run and Debug" on Mac automatically spawns a material_editor_gui process, so skip manually spawning one from the debugger
-        let _ = Command::new("./material_editor_gui")
-            .spawn()
-            .expect("Failed to start Material Editor Gui");
-    }*/
-
+    println!("Spawning process {material_editor_gui}");
     let _ = Command::new(material_editor_gui)
         .spawn()
         .expect("Failed to start Material Editor Gui");
@@ -142,7 +137,7 @@ fn initialize_module() {
 }
 
 #[system]
-fn update_shared_mem(
+fn update_loop(
     gpu_interface: &mut GpuInterface,
     material_editor: &mut MaterialEditor,
     gpu_resource: &mut GpuResource,
@@ -151,27 +146,40 @@ fn update_shared_mem(
 ) {
     let mut new_material_id: Option<MaterialId> = None;
     let mut new_tex_id: Option<TextureId> = None;
+    let mut param_update: Option<(String, Vec4)> = None;
 
-    unsafe {
-        if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
-            let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+    // Acquire lock if available
+    let shared_mem = SHARED_MEM_FILE.try_lock();
+    if shared_mem.is_err() {
+        return;
+    }
+    let mut shared_mem = shared_mem.unwrap();
 
-            if !read_barrier.load(Ordering::Acquire) {
-                let incoming_message =
-                    std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
+    let read_barrier = unsafe { &*(shared_mem.as_ptr() as *mut AtomicBool) };
+    if !read_barrier.load(Ordering::Acquire) {
+        let outgoing_command = String::new();
+        let incoming_message = std::str::from_utf8(&shared_mem[1..]).expect("Invalid UTF-8");
 
-                let incoming_command: Vec<&str> = incoming_message
-                    .split(|c: char| c.is_whitespace() || c == '\0')
-                    .collect();
-                let outgoing_command = String::new();
+        if incoming_message.as_bytes()[0] != b'\0' {
+            let incoming_command: Vec<&str> = incoming_message.split("##DELIM##").collect();
+            if !incoming_command.is_empty() {
+                match incoming_command[0] {
+                    // Update Uniform variables
+                    "update_uniform" => {
+                        let color: [f32; 4] = {
+                            let color_vec: Vec<f32> = incoming_command[2]
+                                .split(',')
+                                .map(|s| s.trim().parse::<f32>().unwrap_or(1.))
+                                .collect();
 
-                // Todo: always true
-                if incoming_command.len() > 0 {
-                    if incoming_command[0] == "load_texture" {
+                            color_vec.try_into().unwrap_or([1., 1., 1., 1.])
+                        };
+                        param_update = Some((incoming_command[1].to_string(), color.into()));
+                    }
+
+                    // Load texture
+                    "load_texture" => {
                         let texture_path = incoming_command[1];
-
-                        println!("load_texture called {texture_path}");
-
                         let id = if let Some(tex) = gpu_interface
                             .texture_asset_manager
                             .get_texture_by_path(&texture_path.into())
@@ -193,21 +201,23 @@ fn update_shared_mem(
                         };
 
                         new_tex_id = Some(id);
-                    } else if incoming_command[0] == "compile" {
-                        println!("Module - Compile material ----");
+                    }
+
+                    // Compile material
+                    "compile" => {
                         if let Some(_mat) = gpu_interface
                             .material_manager
                             .get_material(material_editor.material_id)
                         {
-                            let parts: Vec<&str> =
-                                incoming_message.split("##delimiter##").collect();
-
-                            let end_of_color = parts[4].find('\0').unwrap_or(parts.len());
-                            let frag_color = &parts[4][..end_of_color];
+                            let compile_params: Vec<&str> =
+                                incoming_message.split("##DELIM##").collect();
 
                             let toml_shader = format!(
                                 "get_world_offset = \"\"\"\n{}\n\"\"\"\nget_fragment_color = \"\"\"\n{}\n\"\"\"\n[uniform_types]\n{}\n[texture_descs]\n{}",
-                                parts[3], frag_color, parts[1], parts[2],
+                                compile_params[3],
+                                compile_params[4],
+                                compile_params[1],
+                                compile_params[2],
                             );
 
                             // dbg!("---> {}", &toml_shader);
@@ -219,15 +229,13 @@ fn update_shared_mem(
                                     &toml_shader,
                                 );
 
-                            println!("mat_id = {:?}", mat_id);
-
                             if let Ok(material_id) = mat_id {
                                 new_material_id = Some(material_id);
                                 let resolve_target = gpu_resource
                                     .texture_manager
                                     .get_render_target(RenderTargetType::ColorResolve);
 
-                                println!("registering pipeline");
+                                println!("Registering new material pipeline {material_id}");
                                 gpu_resource.pipeline_manager.register_pipeline(
                                     material_id,
                                     resolve_target.texture.format(),
@@ -237,30 +245,31 @@ fn update_shared_mem(
                                     wgpu::BlendState::ALPHA_BLENDING,
                                 );
                             } else {
+                                println!("Unable to register new material pipeline {:?}", mat_id);
                                 new_material_id =
                                     Some(DefaultMaterials::MissingOrBroken.material_id());
                             }
-                            println!("Module - Material Compiled");
                         }
                     }
-                }
-
-                // Clear shared_mem buffer
-                shared_mem[1..].fill(b'\0');
-
-                // Write outgoing commands
-                if !outgoing_command.is_empty() {
-                    shared_mem[1..outgoing_command.len() + 1]
-                        .copy_from_slice(outgoing_command.as_bytes());
-                }
-
-                read_barrier.store(true, Ordering::Release);
+                    _ => {}
+                };
             }
 
-            shared_mem.flush().expect("Failed to flush");
+            // Clear shared_mem buffer
+            shared_mem[1..].fill(b'\0');
         }
+
+        // Write outgoing commands
+        if !outgoing_command.is_empty() {
+            shared_mem[1..outgoing_command.len() + 1].copy_from_slice(outgoing_command.as_bytes());
+        }
+
+        read_barrier.store(true, Ordering::Release);
     }
 
+    shared_mem.flush().expect("Failed to flush");
+
+    // Update sprites with any new data
     texture_query.for_each(|(_, parameters)| {
         if let Some(material_id) = new_material_id {
             let default_material = gpu_interface
@@ -269,8 +278,17 @@ fn update_shared_mem(
                 .unwrap();
 
             parameters.data = default_material.generate_default_material_parameters().data;
-
             parameters.material_id = new_material_id.unwrap();
+        }
+
+        if let Some(param) = &param_update {
+            let uniform = UniformValue::Vec4(param.1.into());
+            if let Ok(new_param) = parameters.update_uniforms(
+                &gpu_interface.material_manager,
+                &[(param.0.clone(), &uniform)],
+            ) {
+                parameters.data = new_param.data;
+            }
         }
         if new_tex_id.is_some() {
             println!("Setting new tex id {}", new_tex_id.unwrap());

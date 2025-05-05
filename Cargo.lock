@@ -2961,6 +2961,7 @@ dependencies = [
  "env_logger",
  "memmap2 0.9.5",
  "once_cell",
+ "regex",
  "rfd",
  "serde",
  "serde_json",
