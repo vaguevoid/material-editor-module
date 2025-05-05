@@ -7,24 +7,24 @@ edition = "2024"
 members = ["material_editor_gui"]
 
 [dependencies.game_module_macro]
-path = "../../engine/runtime/game_module_macro"
+path = "../engine/runtime/game_module_macro"
 
 [dependencies.void_public]
-path = "../../engine/runtime/void_public"
+path = "../engine/runtime/void_public"
 
 [build-dependencies.build_tools]
-path = "../../engine/runtime/build_tools"
+path = "../engine/runtime/build_tools"
 
 
 [dependencies]
 rand = "0.9.0"
 eframe = "0.24"
-game_asset = { path = "../../engine/runtime/game_asset", features = ["internal_features"] }
-gpu_web = { path = "../../engine/runtime/gpu_web"}
+game_asset = { path = "../engine/runtime/game_asset", features = ["internal_features"] }
+gpu_web = { path = "../engine/runtime/gpu_web"}
 indoc = "2"
 memmap2 = "0.9"
 once_cell = "1.21"
-snapshot = { path = "../../engine/runtime/snapshot" }
+snapshot = { path = "../engine/runtime/snapshot" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 wgpu = "23.0.1"

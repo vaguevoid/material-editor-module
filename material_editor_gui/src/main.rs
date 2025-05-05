@@ -366,7 +366,7 @@ impl eframe::App for MaterialEditor {
                     let var_name = &caps[1];//.unwrap_or("No name");
                     let default_value = caps.get(2).map(|m| m.as_str()).unwrap_or("1., 1., 1., 1.");
 
-                 /* */   let mut color: [f32;4] = {
+                    let mut color: [f32;4] = {
                         let mut color_vec: Vec<f32>  = default_value
                             .split(',')
                             .map(|s| s.trim().parse::<f32>().unwrap_or(1.))
@@ -377,7 +377,6 @@ impl eframe::App for MaterialEditor {
                         color_vec.try_into().unwrap_or([1., 1., 1., 1.])
                     };
 
-                    let color_picker_id = egui::Id::new("color_picker");
                     ui.label(format!("{}:", var_name));
                     let prev_color = color;
                     let mut color_picker = ui.color_edit_button_rgba_unmultiplied(&mut color);
@@ -391,9 +390,10 @@ impl eframe::App for MaterialEditor {
                         );
                     }
                     format!(r#"{} = {{ type = "vec4f", default = [{:.1}, {:.1}, {:.1}, {:.1}]"#, var_name, color[0], color[1], color[2], color[3])
-            }).to_string();
+                }).to_string();
+            });
         });
-    });
+
         unsafe {
             if let Ok(mut shared_mem) = SHARED_MEM_FILE.try_lock() {
                 let read_barrier = { &*(shared_mem.as_ptr() as *mut AtomicBool) };
