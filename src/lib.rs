@@ -96,18 +96,19 @@ fn initialize_module() {
 
     // Open the gui
     let material_editor_gui = {
-        let path = if Path::new("./target/debug/material_editor_gui.exe").exists() {
+        let path = if Path::new("./target/debug/").exists() {
             "./target/debug/material_editor_gui.exe"
         } else {
             "./material_editor_gui.exe"
         };
 
         #[cfg(target_os = "macos")]
-        let path = path.strip_suffix(path).unwrap_or(path);
+        let path = path.strip_suffix(".exe").unwrap_or(path);
 
         path
     };
 
+    println!("Spawning process {material_editor_gui}");
     let _ = Command::new(material_editor_gui)
         .spawn()
         .expect("Failed to start Material Editor Gui");

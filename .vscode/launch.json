@@ -6,7 +6,7 @@
             "request": "launch",
             "name": "Launch Engine - Debug",
             "preLaunchTask": "Build + Copy",
-            "program": "C:/Users/ben_a/OneDrive/Documents/Desktop/projects/void/engine/target/release/platform_native",
+            "program": "/Users/benjaminwilson/Desktop/projects/void/engine/target/debug/platform_native",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

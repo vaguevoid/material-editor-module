@@ -302,7 +302,7 @@ impl eframe::App for MaterialEditor {
                         TextEdit::multiline(&mut self.frag_color_text)
                             .code_editor()
                             .desired_width(f32::INFINITY)
-                            .desired_rows(25)
+                            .desired_rows(15)
                             .font(egui::TextStyle::Monospace),
                     );
                 });
